@@ -269,6 +269,7 @@ def _install_apks(
                 'adb devices | tail -n +2 | cut -f 1', shell=True
             )
             .decode('utf-8')
+            .strip()
             .splitlines()
         )
     for apk in apks:
