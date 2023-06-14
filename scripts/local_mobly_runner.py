@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
+# TODO(b/287136126): automatically align Python version between build and runner
 
 # Copyright (C) 2023 The Android Open Source Project
 #
