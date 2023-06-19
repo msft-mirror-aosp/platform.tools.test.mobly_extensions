@@ -232,10 +232,6 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
     Returns:
       Path to the virtualenv's Python interpreter.
     """
-    if not requirements_files:
-        print('No requirements.txt file found. Aborting.')
-        exit(1)
-
     venv_dir = tempfile.mkdtemp(prefix='venv_')
     _padded_print(f'Creating virtualenv at {venv_dir}.')
     subprocess.check_call([sys.executable, '-m', 'venv', venv_dir])
