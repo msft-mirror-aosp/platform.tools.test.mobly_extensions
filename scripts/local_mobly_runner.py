@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
+# TODO(b/287136126): automatically align Python version between build and runner
 
 # Copyright (C) 2023 The Android Open Source Project
 #
@@ -231,10 +232,6 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
     Returns:
       Path to the virtualenv's Python interpreter.
     """
-    if not requirements_files:
-        print('No requirements.txt file found. Aborting.')
-        exit(1)
-
     venv_dir = tempfile.mkdtemp(prefix='venv_')
     _padded_print(f'Creating virtualenv at {venv_dir}.')
     subprocess.check_call([sys.executable, '-m', 'venv', venv_dir])
