@@ -91,16 +91,16 @@ def _parse_args() -> argparse.Namespace:
             ' devices. Requires the -m or -p options.'
         ),
     )
-    group2 = parser.add_mutually_exclusive_group()
-    group2.add_argument(
+    parser.add_argument(
         '-s',
         '--serials',
         help=(
             'Specify the devices to test with a comma-delimited list of device '
-            'serials.'
+            'serials. If --config is also specified, this option will only be '
+            'used to select the devices to install APKs.'
         ),
     )
-    group2.add_argument(
+    parser.add_argument(
         '-c', '--config', help='Provide a custom Mobly config for the test.'
     )
     parser.add_argument('-tb', '--test_bed',
@@ -189,12 +189,14 @@ def _resolve_test_resources(
     Returns:
       Tuple of (mobly_bins, requirement_files, test_apks).
     """
+    _padded_print('Resolving test resources.')
     mobly_bins = []
     requirements_files = []
     test_apks = []
     if args.test_paths:
         mobly_bins.extend(args.test_paths.split(','))
     elif args.module:
+        print(f'Resolving test module {args.module}.')
         for path in _get_module_artifacts(args.module):
             if path.endswith(args.module):
                 mobly_bins.append(path)
