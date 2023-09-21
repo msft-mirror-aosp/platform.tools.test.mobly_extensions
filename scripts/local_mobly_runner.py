@@ -309,7 +309,7 @@ def _generate_mobly_config(serials: Optional[List[str]] = None) -> str:
 
 
 def _run_mobly_tests(
-        python_executable: str,
+        python_executable: Optional[str],
         mobly_bins: List[str],
         config: str,
         test_bed: Optional[str],
@@ -321,7 +321,8 @@ def _run_mobly_tests(
         bin_name = os.path.basename(mobly_bin)
         if log_path:
             env['MOBLY_LOGPATH'] = os.path.join(log_path, bin_name)
-        cmd = [python_executable, mobly_bin, '-c', config]
+        cmd = [python_executable] if python_executable else []
+        cmd += [mobly_bin, '-c', config]
         if test_bed:
             cmd += ['-tb', test_bed]
         _padded_print(f'Running Mobly test {bin_name}.')
@@ -357,9 +358,12 @@ def main() -> None:
         _install_apks(test_apks, serials)
 
     # Set up the Python virtualenv, if necessary
-    python_executable = (
-        sys.executable if args.novenv else _setup_virtualenv(requirements_files)
-    )
+    python_executable = None
+    if args.novenv:
+        if args.testpaths is not None:
+            python_executable = sys.executable
+    else:
+        python_executable = _setup_virtualenv(requirements_files)
 
     # Generate the Mobly config, if necessary
     config = args.config or _generate_mobly_config(serials)
