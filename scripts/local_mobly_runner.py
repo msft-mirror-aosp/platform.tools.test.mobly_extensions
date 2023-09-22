@@ -208,7 +208,7 @@ def _resolve_test_resources(
         unzip_root = tempfile.mkdtemp(prefix='mobly_unzip_')
         _tempdirs.append(unzip_root)
         for package in args.packages.split(','):
-            mobly_bins.append(package)
+            mobly_bins.append(os.path.abspath(package))
             unzip_dir = os.path.join(unzip_root, os.path.basename(package))
             print(f'Unzipping test package {package} to {unzip_dir}.')
             os.makedirs(unzip_dir)
