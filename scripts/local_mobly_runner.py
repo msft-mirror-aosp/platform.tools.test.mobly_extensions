@@ -360,7 +360,7 @@ def main() -> None:
     # Set up the Python virtualenv, if necessary
     python_executable = None
     if args.novenv:
-        if args.testpaths is not None:
+        if args.test_paths is not None:
             python_executable = sys.executable
     else:
         python_executable = _setup_virtualenv(requirements_files)
