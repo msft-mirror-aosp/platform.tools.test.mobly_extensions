@@ -20,17 +20,17 @@ import os
 import tempfile
 from typing import Any, Dict, Optional
 
-from google.protobuf import text_format
 from mobly.controllers import android_device
 from protos import aconfig_pb2
 
 _ACONFIG_PARTITIONS = ('product', 'system', 'system_ext', 'vendor')
-_ACONFIG_TEXTPROTO_FILE = 'aconfig_flags.textproto'
+_ACONFIG_PB_FILE = 'aconfig_flags.pb'
 
 _DEVICE_CONFIG_GET_CMD = 'device_config get'
 
 _READ_ONLY = aconfig_pb2.flag_permission.READ_ONLY
 _ENABLED = aconfig_pb2.flag_state.ENABLED
+
 
 class DeviceFlags:
     """Provides access to aconfig and device_config flag values of a device."""
@@ -45,8 +45,8 @@ class DeviceFlags:
         Flags must be specified by both its namespace and name.
 
         The method will first look for the flag from the device's
-        aconfig_flags.textproto files, and, if not found or the flag is
-        READ_WRITE, then retrieve the value from 'adb device_config get'.
+        aconfig_flags.pb files, and, if not found or the flag is READ_WRITE,
+        then retrieve the value from 'adb device_config get'.
 
         All values are returned as strings, e.g. 'true', '3'.
 
@@ -111,13 +111,12 @@ class DeviceFlags:
         with tempfile.TemporaryDirectory() as tmp_dir:
             for partition in _ACONFIG_PARTITIONS:
                 device_path = os.path.join(
-                    '/', partition, 'etc', _ACONFIG_TEXTPROTO_FILE)
+                    '/', partition, 'etc', _ACONFIG_PB_FILE)
                 host_path = os.path.join(
-                    tmp_dir, '%s_%s' % (partition, _ACONFIG_TEXTPROTO_FILE))
+                    tmp_dir, '%s_%s' % (partition, _ACONFIG_PB_FILE))
                 self._ad.adb.pull([device_path, host_path])
-                with open(host_path) as f:
-                    parsed_flags = text_format.Parse(
-                        f.read(), aconfig_pb2.parsed_flags())
+                with open(host_path, 'rb') as f:
+                    parsed_flags = aconfig_pb2.parsed_flags.FromString(f.read())
                 for flag in parsed_flags.parsed_flag:
                     full_name = '%s/%s.%s' % (
                         flag.namespace, flag.package, flag.name)
