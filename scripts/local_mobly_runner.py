@@ -1,5 +1,4 @@
-#!/usr/bin/env python3.10
-# TODO(b/287136126): automatically align Python version between build and runner
+#!/usr/bin/env python3
 
 # Copyright (C) 2023 The Android Open Source Project
 #
@@ -92,18 +91,20 @@ def _parse_args() -> argparse.Namespace:
             ' devices. Requires the -m or -p options.'
         ),
     )
-    group2 = parser.add_mutually_exclusive_group()
-    group2.add_argument(
+    parser.add_argument(
         '-s',
         '--serials',
         help=(
             'Specify the devices to test with a comma-delimited list of device '
-            'serials.'
+            'serials. If --config is also specified, this option will only be '
+            'used to select the devices to install APKs.'
         ),
     )
-    group2.add_argument(
+    parser.add_argument(
         '-c', '--config', help='Provide a custom Mobly config for the test.'
     )
+    parser.add_argument('-tb', '--test_bed',
+                        help='Select the testbed for the test.')
     parser.add_argument('-lp', '--log_path',
                         help='Specify a path to store logs.')
     parser.add_argument(
@@ -188,12 +189,14 @@ def _resolve_test_resources(
     Returns:
       Tuple of (mobly_bins, requirement_files, test_apks).
     """
+    _padded_print('Resolving test resources.')
     mobly_bins = []
     requirements_files = []
     test_apks = []
     if args.test_paths:
         mobly_bins.extend(args.test_paths.split(','))
     elif args.module:
+        print(f'Resolving test module {args.module}.')
         for path in _get_module_artifacts(args.module):
             if path.endswith(args.module):
                 mobly_bins.append(path)
@@ -205,7 +208,7 @@ def _resolve_test_resources(
         unzip_root = tempfile.mkdtemp(prefix='mobly_unzip_')
         _tempdirs.append(unzip_root)
         for package in args.packages.split(','):
-            mobly_bins.append(package)
+            mobly_bins.append(os.path.abspath(package))
             unzip_dir = os.path.join(unzip_root, os.path.basename(package))
             print(f'Unzipping test package {package} to {unzip_dir}.')
             os.makedirs(unzip_dir)
@@ -306,10 +309,11 @@ def _generate_mobly_config(serials: Optional[List[str]] = None) -> str:
 
 
 def _run_mobly_tests(
-        python_executable: str,
+        python_executable: Optional[str],
         mobly_bins: List[str],
         config: str,
-        log_path: Optional[str] = None,
+        test_bed: Optional[str],
+        log_path: Optional[str]
 ) -> None:
     """Runs the Mobly tests with the specified binary and config."""
     env = os.environ.copy()
@@ -317,7 +321,10 @@ def _run_mobly_tests(
         bin_name = os.path.basename(mobly_bin)
         if log_path:
             env['MOBLY_LOGPATH'] = os.path.join(log_path, bin_name)
-        cmd = [python_executable, mobly_bin, '-c', config]
+        cmd = [python_executable] if python_executable else []
+        cmd += [mobly_bin, '-c', config]
+        if test_bed:
+            cmd += ['-tb', test_bed]
         _padded_print(f'Running Mobly test {bin_name}.')
         print(f'Command: {cmd}\n')
         subprocess.run(cmd, env=env)
@@ -351,15 +358,19 @@ def main() -> None:
         _install_apks(test_apks, serials)
 
     # Set up the Python virtualenv, if necessary
-    python_executable = (
-        sys.executable if args.novenv else _setup_virtualenv(requirements_files)
-    )
+    python_executable = None
+    if args.novenv:
+        if args.test_paths is not None:
+            python_executable = sys.executable
+    else:
+        python_executable = _setup_virtualenv(requirements_files)
 
     # Generate the Mobly config, if necessary
     config = args.config or _generate_mobly_config(serials)
 
     # Run the tests
-    _run_mobly_tests(python_executable, mobly_bins, config, args.log_path)
+    _run_mobly_tests(python_executable, mobly_bins, config, args.test_bed,
+                     args.log_path)
 
     # Clean up temporary dirs/files
     _clean_up()
