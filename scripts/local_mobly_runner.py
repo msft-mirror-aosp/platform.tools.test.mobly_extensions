@@ -20,7 +20,8 @@ Example:
     - Run a test module.
     local_mobly_runner.py -m my_test_module
 
-    - Run a test module. Build the module and install test APKs before running the test.
+    - Run a test module. Build the module and install test APKs before running
+      the test.
     local_mobly_runner.py -m my_test_module -b -i
 
     - Run a test module with specific Android devices.
@@ -35,6 +36,7 @@ Please run `local_mobly_runner.py -h` for a full list of options.
 import argparse
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -239,7 +241,10 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
     _padded_print(f'Creating virtualenv at {venv_dir}.')
     subprocess.check_call([sys.executable, '-m', 'venv', venv_dir])
     _tempdirs.append(venv_dir)
-    venv_executable = os.path.join(venv_dir, 'bin/python3')
+    if platform.system() == 'Windows':
+        venv_executable = os.path.join(venv_dir, 'Scripts', 'python.exe')
+    else:
+        venv_executable = os.path.join(venv_dir, 'bin', 'python3')
 
     # Install requirements
     for requirements_file in requirements_files:
@@ -343,6 +348,11 @@ def _clean_up() -> None:
 
 def main() -> None:
     args = _parse_args()
+
+    # args.module is not supported in Windows
+    if args.module and platform.system() == 'Windows':
+        print('The --module option is not supported in Windows. Aborting.')
+        exit(1)
 
     # Build the test module if requested by user
     if args.build:
