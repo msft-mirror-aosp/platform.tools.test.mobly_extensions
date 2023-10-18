@@ -255,6 +255,19 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
     return venv_executable
 
 
+def _parse_adb_devices(lines: List[str]) -> List[str]:
+    """Parses result from 'adb devices' into a list of serials.
+
+    Derived from mobly.controllers.android_device.
+    """
+    results = []
+    for line in lines:
+        tokens = line.strip().split('\t')
+        if len(tokens) == 2 and tokens[1] == 'device':
+            results.append(tokens[0])
+    return results
+
+
 def _install_apks(
         apks: List[str],
         serials: Optional[List[str]] = None,
@@ -269,14 +282,12 @@ def _install_apks(
     """
     _padded_print('Installing test APKs.')
     if not serials:
-        serials = (
+        adb_devices_out = (
             subprocess.check_output(
-                'adb devices | tail -n +2 | cut -f 1', shell=True
-            )
-            .decode('utf-8')
-            .strip()
-            .splitlines()
+                ['adb', 'devices']
+            ).decode('utf-8').strip().splitlines()
         )
+        serials = _parse_adb_devices(adb_devices_out)
     for apk in apks:
         for serial in serials:
             print(f'Installing {apk} on device {serial}.')
