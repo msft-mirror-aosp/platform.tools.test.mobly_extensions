@@ -36,6 +36,7 @@ Please run `local_mobly_runner.py -h` for a full list of options.
 import argparse
 import json
 import os
+from pathlib import Path
 import platform
 import shutil
 import subprocess
@@ -48,6 +49,8 @@ _LOCAL_SETUP_INSTRUCTIONS = (
     '\n\tcd <repo_root>; set -a; source build/envsetup.sh; set +a; lunch'
     ' <target>'
 )
+_DEFAULT_MOBLY_LOGPATH = Path('/tmp/logs/mobly')
+_DEFAULT_TESTBED = 'LocalTestBed'
 
 _tempdirs = []
 _tempfiles = []
@@ -106,7 +109,10 @@ def _parse_args() -> argparse.Namespace:
         '-c', '--config', help='Provide a custom Mobly config for the test.'
     )
     parser.add_argument('-tb', '--test_bed',
-                        help='Select the testbed for the test.')
+                        default=_DEFAULT_TESTBED,
+                        help='Select the testbed for the test. If left '
+                             f'unspecified, "{_DEFAULT_TESTBED}" will be '
+                             'selected by default.')
     parser.add_argument('-lp', '--log_path',
                         help='Specify a path to store logs.')
     parser.add_argument(
@@ -310,13 +316,13 @@ def _generate_mobly_config(serials: Optional[List[str]] = None) -> str:
     """
     config = {
         'TestBeds': [{
-            'Name': 'LocalTestBed',
+            'Name': _DEFAULT_TESTBED,
             'Controllers': {
                 'AndroidDevice': serials if serials else '*',
             },
         }]
     }
-    _, config_path = tempfile.mkstemp(prefix='mobly_config_')
+    _, config_path = tempfile.mkstemp(prefix='mobly_config_', suffix='.yaml')
     _padded_print(f'Generating Mobly config at {config_path}.')
     with open(config_path, 'w') as f:
         json.dump(config, f)
@@ -328,22 +334,26 @@ def _run_mobly_tests(
         python_executable: Optional[str],
         mobly_bins: List[str],
         config: str,
-        test_bed: Optional[str],
+        test_bed: str,
         log_path: Optional[str]
 ) -> None:
     """Runs the Mobly tests with the specified binary and config."""
     env = os.environ.copy()
+    base_log_path = _DEFAULT_MOBLY_LOGPATH
     for mobly_bin in mobly_bins:
         bin_name = os.path.basename(mobly_bin)
         if log_path:
-            env['MOBLY_LOGPATH'] = os.path.join(log_path, bin_name)
+            base_log_path = Path(log_path, bin_name)
+            env['MOBLY_LOGPATH'] = str(base_log_path)
         cmd = [python_executable] if python_executable else []
-        cmd += [mobly_bin, '-c', config]
-        if test_bed:
-            cmd += ['-tb', test_bed]
+        cmd += [mobly_bin, '-c', config, '-tb', test_bed]
         _padded_print(f'Running Mobly test {bin_name}.')
         print(f'Command: {cmd}\n')
         subprocess.run(cmd, env=env)
+        # Save a copy of the config in the log directory.
+        latest_logs = base_log_path.joinpath(test_bed, 'latest')
+        if latest_logs.is_dir():
+            shutil.copy2(config, latest_logs)
 
 
 def _clean_up() -> None:
