@@ -25,52 +25,95 @@ class DeviceFlagsTest(unittest.TestCase):
     """Unit tests for DeviceFlags."""
 
     def setUp(self) -> None:
+        super().setUp()
         self.ad = mock.MagicMock()
         self.device_flags = device_flags.DeviceFlags(self.ad)
         self.device_flags._aconfig_flags = {}
 
     def test_get_value_aconfig_flag_missing_use_device_config(self) -> None:
         self.ad.adb.shell.return_value = b'foo'
-        self.assertEqual(self.device_flags.get_value('sample', 'flag'), 'foo')
+
+        value = self.device_flags.get_value('sample', 'flag')
+
+        self.assertEqual(value, 'foo')
 
     def test_get_value_aconfig_flag_read_write_use_device_config(self) -> None:
         sample_flag = aconfig_pb2.parsed_flag()
         sample_flag.state = aconfig_pb2.flag_state.ENABLED
         sample_flag.permission = aconfig_pb2.flag_permission.READ_WRITE
         self.device_flags._aconfig_flags['sample/flag'] = sample_flag
-
         self.ad.adb.shell.return_value = b'false'
-        self.assertEqual(self.device_flags.get_value('sample', 'flag'), 'false')
+
+        value = self.device_flags.get_value('sample', 'flag')
+
+        self.assertEqual(value, 'false')
 
     def test_get_value_aconfig_flag_read_only_use_aconfig(self) -> None:
         sample_flag = aconfig_pb2.parsed_flag()
         sample_flag.state = aconfig_pb2.flag_state.ENABLED
         sample_flag.permission = aconfig_pb2.flag_permission.READ_ONLY
         self.device_flags._aconfig_flags['sample/flag'] = sample_flag
-
         self.ad.adb.shell.return_value = b'false'
-        self.assertEqual(self.device_flags.get_value('sample', 'flag'), 'true')
+
+        value = self.device_flags.get_value('sample', 'flag')
+
+        self.assertEqual(value, 'true')
 
     def test_get_value_device_config_null_use_aconfig(self) -> None:
         sample_flag = aconfig_pb2.parsed_flag()
         sample_flag.state = aconfig_pb2.flag_state.ENABLED
         sample_flag.permission = aconfig_pb2.flag_permission.READ_WRITE
         self.device_flags._aconfig_flags['sample/flag'] = sample_flag
-
         self.ad.adb.shell.return_value = b'null'
-        self.assertEqual(self.device_flags.get_value('sample', 'flag'), 'true')
 
-    def test_get_bool_with_valid_bool_value(self) -> None:
+        value = self.device_flags.get_value('sample', 'flag')
+
+        self.assertEqual(value, 'true')
+
+    def test_get_bool_with_valid_bool_value_true(self) -> None:
         self.ad.adb.shell.return_value = b'true'
-        self.assertTrue(self.device_flags.get_bool('sample', 'flag'))
 
+        value = self.device_flags.get_bool('sample', 'flag')
+
+        self.assertTrue(value)
+
+    def test_get_bool_with_valid_bool_value_false(self) -> None:
         self.ad.adb.shell.return_value = b'false'
-        self.assertFalse(self.device_flags.get_bool('sample', 'flag'))
+
+        value = self.device_flags.get_bool('sample', 'flag')
+
+        self.assertFalse(value)
 
     def test_get_bool_with_invalid_bool_value(self) -> None:
         self.ad.adb.shell.return_value = b'foo'
+
         with self.assertRaisesRegex(ValueError, 'not a boolean'):
             self.device_flags.get_bool('sample', 'flag')
+
+    def test_set_value_runs_correct_command(self) -> None:
+        self.device_flags.set_value('sample', 'flag', 'value')
+
+        self.ad.adb.shell.assert_called_with('device_config put sample flag value')
+
+    def test_enable_runs_correct_command(self) -> None:
+        self.ad.adb.shell.return_value = b'true'
+
+        self.device_flags.enable('sample', 'flag')
+
+        self.ad.adb.shell.assert_called_with('device_config put sample flag true')
+
+    def test_disable_runs_correct_command(self) -> None:
+        self.ad.adb.shell.return_value = b'true'
+
+        self.device_flags.disable('sample', 'flag')
+
+        self.ad.adb.shell.assert_called_with('device_config put sample flag false')
+
+    def test_disable_fails_with_non_boolean_original_value(self) -> None:
+        self.ad.adb.shell.return_value = b'foo'
+
+        with self.assertRaisesRegex(ValueError, 'not a boolean'):
+            self.device_flags.disable('sample', 'flag')
 
 
 if __name__ == '__main__':
