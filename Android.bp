@@ -33,3 +33,13 @@ python_test_host {
         "mobly_device_flags",
     ],
 }
+
+// Tool to upload Mobly test results to Resultstore.
+genrule {
+    name: "mobly_results_uploader",
+    tools: ["soong_zip"],
+    srcs: ["tools/results_uploader/**/*"],
+    cmd: "RESULTS_UPLOADER=tools/test/mobly_extensions/tools/results_uploader;" +
+        "$(location soong_zip) -o $(out) -C $${RESULTS_UPLOADER} -D $${RESULTS_UPLOADER};",
+    out: ["results_uploader.zip"],
+}
