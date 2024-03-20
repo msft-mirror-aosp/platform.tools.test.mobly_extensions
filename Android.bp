@@ -35,6 +35,8 @@ python_test_host {
 }
 
 // Tool to upload Mobly test results to Resultstore.
+// If releasing as new version "x.y", rename the generated zip file to
+// "results_uploader_x_y.zip".
 genrule {
     name: "mobly_results_uploader",
     tools: ["soong_zip"],
