@@ -27,7 +27,7 @@ from googleapiclient import discovery
 import httplib2
 
 _DEFAULT_CONFIGURATION = 'default'
-_RESULTSTORE_BASE_LINK = 'https://source.cloud.google.com/results/invocations'
+_RESULTSTORE_BASE_LINK = 'https://btx.cloud.google.com/invocations'
 
 _STATUS_PASSED = 'PASSED'
 _STATUS_FAILED = 'FAILED'
