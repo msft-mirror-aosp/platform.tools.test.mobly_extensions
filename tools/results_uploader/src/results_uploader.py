@@ -25,15 +25,22 @@ import pathlib
 import platform
 import shutil
 import tempfile
+import warnings
 from xml.etree import ElementTree
 
 import google.auth
 from google.cloud import storage
-from google.cloud.storage import transfer_manager
 from googleapiclient import discovery
 
 import mobly_result_converter
 import resultstore_client
+
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore')
+    from google.cloud.storage import transfer_manager
+
+logging.getLogger('googleapiclient').setLevel(logging.WARNING)
+
 
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
