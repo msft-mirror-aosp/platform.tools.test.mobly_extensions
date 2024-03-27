@@ -39,6 +39,11 @@ Google Cloud Storage bucket:
 1. Create a new terminal and run the following installation commands (first-time
    only).
 
+   **Note**: `<results_uploader_dir>` must contain path separators, so it's not
+   confused with a package from PyPI. For example, if the unzipped directory is
+   `results_uploader`, specify it as `results_uploader/` or
+   `./results_uploader`.
+
     ```bash
     # on Linux
 
@@ -72,5 +77,5 @@ Google Cloud Storage bucket:
     ```
 
 4. If successful, at the end of the upload process you will get a link beginning
-   with http://source.cloud.google.com. Simply share this link to others who
+   with http://btx.cloud.google.com. Simply share this link to others who
    wish to view your test results.
