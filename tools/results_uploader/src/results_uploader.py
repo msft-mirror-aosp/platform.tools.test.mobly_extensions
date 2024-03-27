@@ -59,13 +59,15 @@ _RUN_IDENTIFIER = 'run_identifier'
 _ResultstoreTreeTags = mobly_result_converter.ResultstoreTreeTags
 _ResultstoreTreeAttributes = mobly_result_converter.ResultstoreTreeAttributes
 
+_Status = resultstore_client.Status
+
 
 @dataclasses.dataclass()
 class _TestResultInfo:
     """Info from the parsed test summary used for the Resultstore invocation."""
 
-    # True if the overall test run passed.
-    passed: bool = True
+    # Aggregate status of the overall test run.
+    status: _Status = _Status.UNKNOWN
     # Target ID for the test.
     target_id: str | None = None
 
@@ -113,20 +115,29 @@ def _get_test_result_info_from_test_xml(
     if mobly_suite_element is None:
         return test_result_info
     # Set aggregate test status
+    test_result_info.status = _Status.PASSED
+    test_class_elements = mobly_suite_element.findall(
+        f'./{_ResultstoreTreeTags.TESTSUITE.value}')
     failures = int(
         mobly_suite_element.get(_ResultstoreTreeAttributes.FAILURES.value)
     )
     errors = int(
         mobly_suite_element.get(_ResultstoreTreeAttributes.ERRORS.value))
     if failures or errors:
-        test_result_info.passed = False
+        test_result_info.status = _Status.FAILED
+    else:
+        all_skipped = all([test_case_element.get(
+            _ResultstoreTreeAttributes.RESULT.value) == 'skipped' for
+                           test_class_element in test_class_elements for
+                           test_case_element in test_class_element.findall(
+                f'./{_ResultstoreTreeTags.TESTCASE.value}')])
+        if all_skipped:
+            test_result_info.status = _Status.SKIPPED
 
     # Set target ID based on test class names and run_identifier property
     test_class_names = [
         test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
-        for test_class_element in mobly_suite_element.findall(
-            f'./{_ResultstoreTreeTags.TESTSUITE.value}'
-        )
+        for test_class_element in test_class_elements
     ]
     target_id = '+'.join(test_class_names)
     properties_element = mobly_suite_element.find(
@@ -199,7 +210,7 @@ def _upload_to_resultstore(
         gcs_bucket: str,
         gcs_dir: str,
         file_paths: list[str],
-        passed: bool,
+        status: _Status,
         target_id: str | None,
 ) -> None:
     """Uploads test results to Resultstore."""
@@ -216,7 +227,7 @@ def _upload_to_resultstore(
     client.create_target(target_id)
     client.create_configured_target()
     client.create_action(f'gs://{gcs_bucket}/{gcs_dir}', file_paths)
-    client.set_status(passed)
+    client.set_status(status)
     client.merge_configured_target()
     client.finalize_configured_target()
     client.merge_target()
@@ -264,7 +275,7 @@ def main():
         args.gcs_bucket,
         gcs_dir_name,
         gcs_files,
-        test_result_info.passed,
+        test_result_info.status,
         args.target_id or test_result_info.target_id,
     )
 

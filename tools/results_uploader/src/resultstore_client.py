@@ -17,6 +17,7 @@
 """Resultstore client for Mobly tests."""
 
 import datetime
+import enum
 import logging
 import posixpath
 import uuid
@@ -29,14 +30,13 @@ import httplib2
 _DEFAULT_CONFIGURATION = 'default'
 _RESULTSTORE_BASE_LINK = 'https://btx.cloud.google.com/invocations'
 
-_STATUS_PASSED = 'PASSED'
-_STATUS_FAILED = 'FAILED'
-_STATUS_UNKNOWN = 'UNKNOWN'
 
-
-def _get_status(passed: bool) -> str:
-    """Get the corresponding status depending on if the test run passed."""
-    return _STATUS_PASSED if passed else _STATUS_FAILED
+class Status(enum.Enum):
+    """Aggregate status of the Resultstore invocation and target."""
+    PASSED = 'PASSED'
+    FAILED = 'FAILED'
+    SKIPPED = 'SKIPPED'
+    UNKNOWN = 'UNKNOWN'
 
 
 class ResultstoreClient:
@@ -66,11 +66,11 @@ class ResultstoreClient:
         self._authorization_token = ''
         self._target_id = ''
 
-        self._status = _STATUS_UNKNOWN
+        self._status = Status.UNKNOWN
 
-    def set_status(self, passed: bool) -> None:
-        """Sets the status depending on if the test run passed."""
-        self._status = _get_status(passed)
+    def set_status(self, status: Status) -> None:
+        """Sets the overall test run status."""
+        self._status = status
 
     def create_invocation(self) -> str:
         """Creates an invocation.
@@ -246,7 +246,7 @@ class ResultstoreClient:
         logging.info('merging configured target %s...', name)
         merge_request = {
             'configuredTarget': {
-                'statusAttributes': {'status': self._status},
+                'statusAttributes': {'status': self._status.value},
             },
             'authorizationToken': self._authorization_token,
             'updateMask': 'statusAttributes',
@@ -291,7 +291,7 @@ class ResultstoreClient:
         logging.info('merging target %s...', name)
         merge_request = {
             'target': {
-                'statusAttributes': {'status': self._status},
+                'statusAttributes': {'status': self._status.value},
             },
             'authorizationToken': self._authorization_token,
             'updateMask': 'statusAttributes',
@@ -334,7 +334,7 @@ class ResultstoreClient:
         name = f'invocations/{self._invocation_id}'
         logging.info('merging invocation %s...', name)
         merge_request = {
-            'invocation': {'statusAttributes': {'status': self._status}},
+            'invocation': {'statusAttributes': {'status': self._status.value}},
             'updateMask': 'statusAttributes',
             'authorizationToken': self._authorization_token,
         }
