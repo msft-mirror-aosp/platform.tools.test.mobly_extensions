@@ -1,5 +1,14 @@
 # Mobly Results Uploader release history
 
+## 0.2
+
+### Fixes
+* Properly URL-encode the target resource name.
+* Report targets with all skipped test cases as `skipped`.
+* Update Resultstore UI link from source.cloud to BTX.
+* Suppress warnings from imported modules.
+
+
 ## 0.1
 
 ### New
