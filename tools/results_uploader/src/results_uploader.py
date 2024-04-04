@@ -56,6 +56,16 @@ _TEST_LOG_INFO = 'test_log.INFO'
 
 _RUN_IDENTIFIER = 'run_identifier'
 
+_GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
+
+_GCS_UPLOAD_INSTRUCTIONS = (
+    '\nAutomatic upload to GCS failed.\n'
+    'Please follow the steps below to manually upload files:\n'
+    f'\t1. Follow the link {_GCS_BASE_LINK}/%s.\n'
+    '\t2. Click "UPLOAD FOLDER".\n'
+    '\t3. Select the directory "%s" to upload.'
+)
+
 _ResultstoreTreeTags = mobly_result_converter.ResultstoreTreeTags
 _ResultstoreTreeAttributes = mobly_result_converter.ResultstoreTreeAttributes
 
@@ -203,7 +213,25 @@ def _upload_dir_to_gcs(
         else:
             logging.debug('Uploaded %s.', file_name)
             success_paths.append(file_name)
+
+    # If all files fail to upload, something wrong happened with the GCS client.
+    # Prompt the user to manually upload the files instead.
+    if file_paths and not success_paths:
+        _prompt_user_upload(src_dir, gcs_bucket)
+        success_paths = file_paths
+
     return success_paths
+
+
+def _prompt_user_upload(src_dir: str, gcs_bucket: str) -> None:
+    """Prompts the user to manually upload files to GCS."""
+    print(_GCS_UPLOAD_INSTRUCTIONS % (gcs_bucket, src_dir))
+    while True:
+        resp = input(
+            'Once you see the message "# files successfully uploaded", '
+            'enter "Y" or "yes" to continue:')
+        if resp.lower() in ('y', 'yes'):
+            break
 
 
 def _upload_to_resultstore(
@@ -269,8 +297,11 @@ def main():
         else args.gcs_dir
     )
     with tempfile.TemporaryDirectory() as tmp:
-        test_result_info = _convert_results(args.mobly_dir, tmp)
-        gcs_files = _upload_dir_to_gcs(tmp, args.gcs_bucket, gcs_dir_name)
+        converted_dir = os.path.join(tmp, gcs_dir_name)
+        os.mkdir(converted_dir)
+        test_result_info = _convert_results(args.mobly_dir, converted_dir)
+        gcs_files = _upload_dir_to_gcs(
+            converted_dir, args.gcs_bucket, gcs_dir_name)
     _upload_to_resultstore(
         args.gcs_bucket,
         gcs_dir_name,
