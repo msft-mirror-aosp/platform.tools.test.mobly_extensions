@@ -101,7 +101,7 @@ class ResultstoreClient:
         Returns:
           The invocation ID.
         """
-        logging.info('creating invocation...')
+        logging.debug('creating invocation...')
         if self._invocation_id:
             logging.warning(
                 'invocation %s already exists, skipping creation...',
@@ -128,7 +128,7 @@ class ResultstoreClient:
 
     def create_default_configuration(self) -> None:
         """Creates a default configuration."""
-        logging.info('creating default configuration...')
+        logging.debug('creating default configuration...')
         configuration = {
             'id': {
                 'invocationId': self._invocation_id,
@@ -157,7 +157,7 @@ class ResultstoreClient:
         Returns:
           The target ID.
         """
-        logging.info('creating target in %s...', self._invocation_name)
+        logging.debug('creating target in %s...', self._invocation_name)
         if self._target_id:
             logging.warning(
                 'target %s already exists, skipping creation...',
@@ -189,7 +189,7 @@ class ResultstoreClient:
 
     def create_configured_target(self) -> None:
         """Creates a configured target."""
-        logging.info('creating configured target in %s...', self._target_name)
+        logging.debug('creating configured target in %s...', self._target_name)
         configured_target = {
             'id': {
                 'invocationId': self._invocation_id,
@@ -221,7 +221,7 @@ class ResultstoreClient:
         Returns:
           The action ID.
         """
-        logging.info('creating action in %s...', self._configured_target_name)
+        logging.debug('creating action in %s...', self._configured_target_name)
         action_id = str(uuid.uuid4())
         files = [
             {'uid': path, 'uri': posixpath.join(gcs_path, path)}
@@ -257,8 +257,8 @@ class ResultstoreClient:
 
     def merge_configured_target(self):
         """Merges a configured target."""
-        logging.info('merging configured target %s...',
-                     self._configured_target_name)
+        logging.debug('merging configured target %s...',
+                      self._configured_target_name)
         merge_request = {
             'configuredTarget': {
                 'statusAttributes': {'status': self._status.value},
@@ -280,8 +280,8 @@ class ResultstoreClient:
 
     def finalize_configured_target(self):
         """Finalizes a configured target."""
-        logging.info('finalizing configured target %s...',
-                     self._configured_target_name)
+        logging.debug('finalizing configured target %s...',
+                      self._configured_target_name)
         finalize_request = {
             'authorizationToken': self._authorization_token,
         }
@@ -299,7 +299,7 @@ class ResultstoreClient:
 
     def merge_target(self):
         """Merges a target."""
-        logging.info('merging target %s...', self._target_name)
+        logging.debug('merging target %s...', self._target_name)
         merge_request = {
             'target': {
                 'statusAttributes': {'status': self._status.value},
@@ -320,7 +320,7 @@ class ResultstoreClient:
 
     def finalize_target(self):
         """Finalizes a target."""
-        logging.info('finalizing target %s...', self._target_name)
+        logging.debug('finalizing target %s...', self._target_name)
         finalize_request = {
             'authorizationToken': self._authorization_token,
         }
@@ -339,7 +339,7 @@ class ResultstoreClient:
 
     def merge_invocation(self):
         """Merges an invocation."""
-        logging.info('merging invocation %s...', self._invocation_name)
+        logging.debug('merging invocation %s...', self._invocation_name)
         merge_request = {
             'invocation': {'statusAttributes': {'status': self._status.value}},
             'updateMask': 'statusAttributes',
@@ -352,7 +352,7 @@ class ResultstoreClient:
 
     def finalize_invocation(self):
         """Finalizes an invocation."""
-        logging.info('finalizing invocation %s...', self._invocation_name)
+        logging.debug('finalizing invocation %s...', self._invocation_name)
         finalize_request = {
             'authorizationToken': self._authorization_token,
         }
@@ -361,11 +361,8 @@ class ResultstoreClient:
         )
         res = request.execute(http=self._http)
         logging.debug('invocations.finalize: %s', res)
-        logging.info(
-            '----------\nresultstore link is %s/%s',
-            _RESULTSTORE_BASE_LINK,
-            self._invocation_id,
-        )
+        print('---------------------')
+        print(f'See results in {_RESULTSTORE_BASE_LINK}/{self._invocation_id}')
         self._request_id = ''
         self._invocation_id = ''
         self._authorization_token = ''
