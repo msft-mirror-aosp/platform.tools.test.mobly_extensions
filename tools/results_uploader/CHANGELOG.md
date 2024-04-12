@@ -1,6 +1,13 @@
 # Mobly Results Uploader release history
 
-## 0.2
+## 0.3 (2024-04-10)
+
+### Fixes
+* Fall back to manual GCS upload (via web page) if the automated upload fails.
+* Clean up console output.
+
+
+## 0.2 (2024-03-28)
 
 ### Fixes
 * Properly URL-encode the target resource name.
@@ -9,7 +16,7 @@
 * Suppress warnings from imported modules.
 
 
-## 0.1
+## 0.1 (2024-01-05)
 
 ### New
 
