@@ -41,7 +41,6 @@ with warnings.catch_warnings():
 
 logging.getLogger('googleapiclient').setLevel(logging.WARNING)
 
-
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
 _DISCOVERY_SERVICE_URL = (
@@ -276,8 +275,8 @@ def main():
     )
     parser.add_argument(
         '--gcs_bucket',
-        required=True,
-        help='Bucket in GCS where test artifacts are uploaded.',
+        help='Bucket in GCS where test artifacts are uploaded. If unspecified, '
+             'use the current GCP project name as the bucket name.',
     )
     parser.add_argument(
         '--gcs_dir',
@@ -291,20 +290,22 @@ def main():
 
     args = parser.parse_args()
     logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
-    gcs_dir_name = (
+    _, project_id = google.auth.default()
+    gcs_bucket = project_id if args.gcs_bucket is None else args.gcs_bucket
+    gcs_dir = (
         datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         if args.gcs_dir is None
         else args.gcs_dir
     )
     with tempfile.TemporaryDirectory() as tmp:
-        converted_dir = os.path.join(tmp, gcs_dir_name)
+        converted_dir = os.path.join(tmp, gcs_dir)
         os.mkdir(converted_dir)
         test_result_info = _convert_results(args.mobly_dir, converted_dir)
         gcs_files = _upload_dir_to_gcs(
-            converted_dir, args.gcs_bucket, gcs_dir_name)
+            converted_dir, gcs_bucket, gcs_dir)
     _upload_to_resultstore(
-        args.gcs_bucket,
-        gcs_dir_name,
+        gcs_bucket,
+        gcs_dir,
         gcs_files,
         test_result_info.status,
         args.target_id or test_result_info.target_id,
