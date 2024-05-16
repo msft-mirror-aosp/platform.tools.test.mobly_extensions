@@ -29,7 +29,7 @@ from googleapiclient import discovery
 import httplib2
 
 _DEFAULT_CONFIGURATION = 'default'
-_RESULTSTORE_BASE_LINK = 'https://btx.cloud.google.com/invocations'
+_RESULTSTORE_BASE_LINK = 'https://btx.cloud.google.com'
 
 
 class Status(enum.Enum):
@@ -38,6 +38,18 @@ class Status(enum.Enum):
     FAILED = 'FAILED'
     SKIPPED = 'SKIPPED'
     UNKNOWN = 'UNKNOWN'
+
+
+class StatusCode(enum.IntEnum):
+    """Test case statuses and their associated code in Resultstore.
+
+    Used to toggle the visibility of test cases with a particular status.
+    """
+    ERRORED = 1
+    TIMED_OUT = 2
+    FAILED = 3
+    FLAKY = 4
+    PASSED = 5
 
 
 class ResultstoreClient:
@@ -334,8 +346,6 @@ class ResultstoreClient:
         )
         res = request.execute(http=self._http)
         logging.debug('invocations.targets.finalize: %s', res)
-        self._target_id = ''
-        self._encoded_target_id = ''
 
     def merge_invocation(self):
         """Merges an invocation."""
@@ -362,7 +372,18 @@ class ResultstoreClient:
         res = request.execute(http=self._http)
         logging.debug('invocations.finalize: %s', res)
         print('---------------------')
-        print(f'See results in {_RESULTSTORE_BASE_LINK}/{self._invocation_id}')
+        # Make the URL show test cases regardless of status by default.
+        show_statuses = (
+            'showStatuses='
+            f'{",".join(str(status_code) for status_code in StatusCode)}'
+        )
+        print(
+            f'See results in {_RESULTSTORE_BASE_LINK}/'
+            f'{self._target_name};config={_DEFAULT_CONFIGURATION}/tests;'
+            f'{show_statuses}'
+        )
         self._request_id = ''
         self._invocation_id = ''
         self._authorization_token = ''
+        self._target_id = ''
+        self._encoded_target_id = ''
