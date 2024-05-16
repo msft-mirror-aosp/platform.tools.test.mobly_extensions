@@ -53,6 +53,7 @@ _UNDECLARED_OUTPUTS = 'undeclared_outputs/'
 _TEST_SUMMARY_YAML = 'test_summary.yaml'
 _TEST_LOG_INFO = 'test_log.INFO'
 
+_SUITE_NAME = 'suite_name'
 _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
@@ -143,16 +144,22 @@ def _get_test_result_info_from_test_xml(
         if all_skipped:
             test_result_info.status = _Status.SKIPPED
 
-    # Set target ID based on test class names and run_identifier property
-    test_class_names = [
-        test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
-        for test_class_element in test_class_elements
-    ]
-    target_id = '+'.join(test_class_names)
+    # Set target ID based on test class names, suite name, and custom run
+    # identifier.
+    suite_name_value = None
+    run_identifier_value = None
     properties_element = mobly_suite_element.find(
         f'./{_ResultstoreTreeTags.PROPERTIES.value}'
     )
     if properties_element is not None:
+        suite_name = properties_element.find(
+            f'./{_ResultstoreTreeTags.PROPERTY.value}'
+            f'[@{_ResultstoreTreeAttributes.NAME.value}="{_SUITE_NAME}"]'
+        )
+        if suite_name is not None:
+            suite_name_value = suite_name.get(
+                _ResultstoreTreeAttributes.VALUE.value
+            )
         run_identifier = properties_element.find(
             f'./{_ResultstoreTreeTags.PROPERTY.value}'
             f'[@{_ResultstoreTreeAttributes.NAME.value}="{_RUN_IDENTIFIER}"]'
@@ -161,7 +168,17 @@ def _get_test_result_info_from_test_xml(
             run_identifier_value = run_identifier.get(
                 _ResultstoreTreeAttributes.VALUE.value
             )
-            target_id = f'{target_id} ({run_identifier_value})'
+    if suite_name_value:
+        target_id = suite_name_value
+    else:
+        test_class_names = [
+            test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
+            for test_class_element in test_class_elements
+        ]
+        target_id = '+'.join(test_class_names)
+    if run_identifier_value:
+        target_id = f'{target_id} {run_identifier_value}'
+
     test_result_info.target_id = target_id
     return test_result_info
 
