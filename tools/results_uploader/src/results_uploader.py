@@ -19,7 +19,9 @@
 import argparse
 import dataclasses
 import datetime
+from importlib import resources
 import logging
+import mimetypes
 import os
 import pathlib
 import platform
@@ -187,6 +189,11 @@ def _upload_dir_to_gcs(
         src_dir: str, gcs_bucket: str, gcs_dir: str
 ) -> list[str]:
     """Uploads the given directory to a GCS bucket."""
+    # Set correct MIME types for certain text-format files.
+    with resources.as_file(
+            resources.files('data').joinpath('mime.types')) as path:
+        mimetypes.init([path])
+
     bucket_obj = storage.Client().bucket(gcs_bucket)
 
     glob = pathlib.Path(src_dir).expanduser().rglob('*')
