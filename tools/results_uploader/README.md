@@ -18,7 +18,7 @@ accounts), allowing for easy tracking and debugging.
 To start using the Results Uploader, you need to be able to access the shared
 Google Cloud Storage bucket:
 1. Confirm/request access to the shared GCP project with your Google contact.
-   The Googler will give you both a project name and storage bucket name to use.
+   The Googler will give you a project name to use.
 2. Install the gcloud CLI from https://cloud.google.com/sdk/docs/install
     * If installation fails with the above method, try the alternative linked
       [here](https://cloud.google.com/sdk/docs/downloads-versioned-archives#installation_instructions).
@@ -73,7 +73,7 @@ Google Cloud Storage bucket:
 3. Run the uploader command, setting the `artifacts_folder` as the path recorded
    in the previous step.
     ```bash
-    results_uploader --mobly_dir=<artifacts_folder> --gcs_bucket=<cloud_storage_bucket>
+    results_uploader <artifacts_folder>
     ```
 
 4. If successful, at the end of the upload process you will get a link beginning
