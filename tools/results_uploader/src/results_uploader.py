@@ -286,8 +286,7 @@ def main():
         '-v', '--verbose', action='store_true', help='Enable debug logs.'
     )
     parser.add_argument(
-        '--mobly_dir',
-        required=True,
+        'mobly_dir',
         help='Directory on host where Mobly results are stored.',
     )
     parser.add_argument(
@@ -303,7 +302,10 @@ def main():
             'current timestamp as the GCS directory name.'
         ),
     )
-    parser.add_argument('--target_id', help='Custom target ID.')
+    parser.add_argument(
+        '--test_title',
+        help='Custom test title to display in the result UI.'
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
@@ -325,7 +327,7 @@ def main():
         gcs_dir,
         gcs_files,
         test_result_info.status,
-        args.target_id or test_result_info.target_id,
+        args.test_title or test_result_info.target_id,
     )
 
 
