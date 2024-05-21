@@ -32,31 +32,25 @@ Google Cloud Storage bucket:
     * When prompted to log in on your browser, follow the instruction to log in
       to Cloud SDK. Use the same account for which you requested access in
       step 1.
-4. Download the provided `results_uploader.zip` and extract its files to a local
-   directory.
+4. Download the provided `results_uploader-{version}.tar.gz`.
 
 ## How to upload results
 1. Create a new terminal and run the following installation commands (first-time
    only).
-
-   **Note**: `<results_uploader_dir>` must contain path separators, so it's not
-   confused with a package from PyPI. For example, if the unzipped directory is
-   `results_uploader`, specify it as `results_uploader/` or
-   `./results_uploader`.
 
     ```bash
     # on Linux
 
     python3 -m venv venv
     source venv/bin/activate
-    python3 -m pip install <results_uploader_dir>
+    python3 -m pip install results_uploader-{version}.tar.gz
     ```
     ```cmd
     :: on Windows
 
     python -m venv venv
     venv\Scripts\activate
-    python -m pip install <results_uploader_dir>
+    python -m pip install results_uploader-{version}.tar.gz
     ```
 
 2. At the end of a completed test run, you'll see the final lines on the console
