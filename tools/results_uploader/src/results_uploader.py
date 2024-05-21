@@ -19,7 +19,9 @@
 import argparse
 import dataclasses
 import datetime
+from importlib import resources
 import logging
+import mimetypes
 import os
 import pathlib
 import platform
@@ -53,6 +55,7 @@ _UNDECLARED_OUTPUTS = 'undeclared_outputs/'
 _TEST_SUMMARY_YAML = 'test_summary.yaml'
 _TEST_LOG_INFO = 'test_log.INFO'
 
+_SUITE_NAME = 'suite_name'
 _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
@@ -143,16 +146,22 @@ def _get_test_result_info_from_test_xml(
         if all_skipped:
             test_result_info.status = _Status.SKIPPED
 
-    # Set target ID based on test class names and run_identifier property
-    test_class_names = [
-        test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
-        for test_class_element in test_class_elements
-    ]
-    target_id = '+'.join(test_class_names)
+    # Set target ID based on test class names, suite name, and custom run
+    # identifier.
+    suite_name_value = None
+    run_identifier_value = None
     properties_element = mobly_suite_element.find(
         f'./{_ResultstoreTreeTags.PROPERTIES.value}'
     )
     if properties_element is not None:
+        suite_name = properties_element.find(
+            f'./{_ResultstoreTreeTags.PROPERTY.value}'
+            f'[@{_ResultstoreTreeAttributes.NAME.value}="{_SUITE_NAME}"]'
+        )
+        if suite_name is not None:
+            suite_name_value = suite_name.get(
+                _ResultstoreTreeAttributes.VALUE.value
+            )
         run_identifier = properties_element.find(
             f'./{_ResultstoreTreeTags.PROPERTY.value}'
             f'[@{_ResultstoreTreeAttributes.NAME.value}="{_RUN_IDENTIFIER}"]'
@@ -161,7 +170,17 @@ def _get_test_result_info_from_test_xml(
             run_identifier_value = run_identifier.get(
                 _ResultstoreTreeAttributes.VALUE.value
             )
-            target_id = f'{target_id} ({run_identifier_value})'
+    if suite_name_value:
+        target_id = suite_name_value
+    else:
+        test_class_names = [
+            test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
+            for test_class_element in test_class_elements
+        ]
+        target_id = '+'.join(test_class_names)
+    if run_identifier_value:
+        target_id = f'{target_id} {run_identifier_value}'
+
     test_result_info.target_id = target_id
     return test_result_info
 
@@ -170,6 +189,11 @@ def _upload_dir_to_gcs(
         src_dir: str, gcs_bucket: str, gcs_dir: str
 ) -> list[str]:
     """Uploads the given directory to a GCS bucket."""
+    # Set correct MIME types for certain text-format files.
+    with resources.as_file(
+            resources.files('data').joinpath('mime.types')) as path:
+        mimetypes.init([path])
+
     bucket_obj = storage.Client().bucket(gcs_bucket)
 
     glob = pathlib.Path(src_dir).expanduser().rglob('*')
@@ -269,8 +293,7 @@ def main():
         '-v', '--verbose', action='store_true', help='Enable debug logs.'
     )
     parser.add_argument(
-        '--mobly_dir',
-        required=True,
+        'mobly_dir',
         help='Directory on host where Mobly results are stored.',
     )
     parser.add_argument(
@@ -286,7 +309,10 @@ def main():
             'current timestamp as the GCS directory name.'
         ),
     )
-    parser.add_argument('--target_id', help='Custom target ID.')
+    parser.add_argument(
+        '--test_title',
+        help='Custom test title to display in the result UI.'
+    )
 
     args = parser.parse_args()
     logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
@@ -308,7 +334,7 @@ def main():
         gcs_dir,
         gcs_files,
         test_result_info.status,
-        args.target_id or test_result_info.target_id,
+        args.test_title or test_result_info.target_id,
     )
 
 
