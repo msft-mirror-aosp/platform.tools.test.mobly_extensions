@@ -22,7 +22,6 @@ import datetime
 from importlib import resources
 import logging
 import mimetypes
-import os
 import pathlib
 import platform
 import shutil
@@ -84,33 +83,32 @@ class _TestResultInfo:
     target_id: str | None = None
 
 
-def _convert_results(mobly_dir: str, dest_dir: str) -> _TestResultInfo:
-    """Converts Mobly test results into a Resultstore artifacts."""
+def _convert_results(
+        mobly_dir: pathlib.Path, dest_dir: pathlib.Path) -> _TestResultInfo:
+    """Converts Mobly test results into Resultstore artifacts."""
     test_result_info = _TestResultInfo()
     logging.info('Converting raw Mobly logs into Resultstore artifacts...')
     # Generate the test.xml
-    mobly_yaml_path = os.path.join(mobly_dir, _TEST_SUMMARY_YAML)
-    if os.path.isfile(mobly_yaml_path):
-        test_xml = mobly_result_converter.convert(
-            mobly_yaml_path, mobly_dir, mobly_dir
-        )
+    mobly_yaml_path = mobly_dir.joinpath(_TEST_SUMMARY_YAML)
+    if mobly_yaml_path.is_file():
+        test_xml = mobly_result_converter.convert(mobly_yaml_path, mobly_dir)
         ElementTree.indent(test_xml)
         test_xml.write(
-            os.path.join(dest_dir, _TEST_XML),
+            str(dest_dir.joinpath(_TEST_XML)),
             encoding='utf-8',
             xml_declaration=True,
         )
         test_result_info = _get_test_result_info_from_test_xml(test_xml)
 
     # Copy test_log.INFO to test.log
-    test_log_info = os.path.join(mobly_dir, _TEST_LOG_INFO)
-    if os.path.isfile(test_log_info):
-        shutil.copyfile(test_log_info, os.path.join(dest_dir, _TEST_LOGS))
+    test_log_info = mobly_dir.joinpath(_TEST_LOG_INFO)
+    if test_log_info.is_file():
+        shutil.copyfile(test_log_info, dest_dir.joinpath(_TEST_LOGS))
 
     # Copy directory to undeclared_outputs/
     shutil.copytree(
         mobly_dir,
-        os.path.join(dest_dir, _UNDECLARED_OUTPUTS),
+        dest_dir.joinpath(_UNDECLARED_OUTPUTS),
         dirs_exist_ok=True,
     )
     return test_result_info
@@ -186,7 +184,7 @@ def _get_test_result_info_from_test_xml(
 
 
 def _upload_dir_to_gcs(
-        src_dir: str, gcs_bucket: str, gcs_dir: str
+        src_dir: pathlib.Path, gcs_bucket: str, gcs_dir: str
 ) -> list[str]:
     """Uploads the given directory to a GCS bucket."""
     # Set correct MIME types for certain text-format files.
@@ -196,7 +194,7 @@ def _upload_dir_to_gcs(
 
     bucket_obj = storage.Client().bucket(gcs_bucket)
 
-    glob = pathlib.Path(src_dir).expanduser().rglob('*')
+    glob = src_dir.rglob('*')
     file_paths = [
         str(path.relative_to(src_dir).as_posix())
         for path in glob
@@ -204,9 +202,9 @@ def _upload_dir_to_gcs(
     ]
 
     logging.info(
-        'Uploading %s files from %s to Cloud Storage bucket %s/%s...',
+        'Uploading %s files from %s to Cloud Storage directory %s/%s...',
         len(file_paths),
-        src_dir,
+        str(src_dir),
         gcs_bucket,
         gcs_dir,
     )
@@ -224,7 +222,7 @@ def _upload_dir_to_gcs(
     results = transfer_manager.upload_many_from_filenames(
         bucket_obj,
         file_paths,
-        source_directory=src_dir,
+        source_directory=str(src_dir),
         blob_name_prefix=blob_name_prefix,
         worker_type=worker_type,
     )
@@ -246,7 +244,7 @@ def _upload_dir_to_gcs(
     return success_paths
 
 
-def _prompt_user_upload(src_dir: str, gcs_bucket: str) -> None:
+def _prompt_user_upload(src_dir: pathlib.Path, gcs_bucket: str) -> None:
     """Prompts the user to manually upload files to GCS."""
     print(_GCS_UPLOAD_INSTRUCTIONS % (gcs_bucket, src_dir))
     while True:
@@ -327,9 +325,10 @@ def main():
         else args.gcs_dir
     )
     with tempfile.TemporaryDirectory() as tmp:
-        converted_dir = os.path.join(tmp, gcs_dir)
-        os.mkdir(converted_dir)
-        test_result_info = _convert_results(args.mobly_dir, converted_dir)
+        converted_dir = pathlib.Path(tmp).joinpath(gcs_dir)
+        converted_dir.mkdir()
+        mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
+        test_result_info = _convert_results(mobly_dir, converted_dir)
         gcs_files = _upload_dir_to_gcs(
             converted_dir, gcs_bucket, gcs_dir)
     _upload_to_resultstore(
