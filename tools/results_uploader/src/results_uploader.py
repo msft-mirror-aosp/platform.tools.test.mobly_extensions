@@ -315,7 +315,10 @@ def main():
     )
 
     args = parser.parse_args()
-    logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
+    logging.basicConfig(
+        format='%(levelname)s: %(message)s',
+        level=(logging.DEBUG if args.verbose else logging.INFO)
+    )
     _, project_id = google.auth.default()
     gcs_bucket = project_id if args.gcs_bucket is None else args.gcs_bucket
     gcs_dir = (
