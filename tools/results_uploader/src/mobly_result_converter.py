@@ -36,9 +36,7 @@ maps to a Resultstore testcase. For example:
 import dataclasses
 import datetime
 import enum
-import glob
 import logging
-import os
 import pathlib
 import re
 from typing import Any, Dict, Iterator, List, Mapping, Optional
@@ -58,11 +56,6 @@ _ILLEGAL_XML_CHARS = re.compile(
 )
 
 _ILLEGAL_YAML_CHARS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
-
-
-def as_posix_path(path):
-    """Returns a given path as a string in POSIX format."""
-    return str(pathlib.Path(path).as_posix())
 
 
 class MoblyResultstoreProperties(enum.Enum):
@@ -204,54 +197,45 @@ def _add_or_update_property_element(
 def _add_file_annotations(
         entry: Mapping[str, Any],
         properties_element: ElementTree.Element,
-        mobly_base_directory: Optional[str],
-        resultstore_root_directory: Optional[str],
+        mobly_base_directory: Optional[pathlib.Path],
 ) -> None:
     """Adds file annotations for a Mobly test case files.
 
     The mobly_base_directory is used to find the files belonging to a test case.
     The files under "mobly_base_directory/test_class/test_method" belong to the
-    test_class#test_method Resultstore node.
-
-    The resultstore_root_directory is used to determine the
-    relative path of the files to the Resultstore root directory for undeclared
-    outputs. The file annotation must be written for the relative path.
+    test_class#test_method Resultstore node. Additionally, it is used to
+    determine the relative path of the files for Resultstore undeclared outputs.
+    The file annotation must be written for the relative path.
 
     Args:
       entry: Mobly summary entry for the test case.
       properties_element: Test case properties element.
       mobly_base_directory: Base directory of the Mobly test.
-      resultstore_root_directory: Root directory for Resultstore undeclared
-        outputs.
     """
-    # If these directories are not provided, the converter will not add the
+    # If mobly_base_directory is not provided, the converter will not add the
     # annotations to associate the files with the test cases.
     if (
             mobly_base_directory is None
-            or resultstore_root_directory is None
             or entry.get(records.TestResultEnums.RECORD_SIGNATURE, None) is None
     ):
         return
 
     test_class = entry[records.TestResultEnums.RECORD_CLASS]
-    test_case_directory = os.path.join(
-        mobly_base_directory,
+    test_case_directory = mobly_base_directory.joinpath(
         test_class,
-        entry[records.TestResultEnums.RECORD_SIGNATURE],
+        entry[records.TestResultEnums.RECORD_SIGNATURE]
     )
 
-    test_case_files = glob.glob(
-        os.path.join(test_case_directory, '**'), recursive=True
-    )
+    test_case_files = test_case_directory.rglob('*')
     file_counter = 0
     for file_path in test_case_files:
-        if not os.path.isfile(file_path):
+        if not file_path.is_file():
             continue
-        relative_path = os.path.relpath(file_path, resultstore_root_directory)
+        relative_path = file_path.relative_to(mobly_base_directory)
         _add_or_update_property_element(
             properties_element,
             f'test_output{file_counter}',
-            as_posix_path(relative_path),
+            str(relative_path.as_posix()),
         )
         file_counter += 1
 
@@ -447,8 +431,7 @@ def _get_reran_nodes(
 def _process_record(
         entry: Mapping[str, Any],
         reran_node: Optional[ReranNode],
-        mobly_base_directory: Optional[str],
-        resultstore_root_directory: Optional[str],
+        mobly_base_directory: Optional[pathlib.Path],
 ) -> ElementTree.Element:
     """Processes a single Mobly test record entry to a Resultstore test case
     node.
@@ -459,8 +442,6 @@ def _process_record(
         if this test is part of a rerun chain.
       mobly_base_directory: Base directory for the Mobly test. Artifacts from
         the Mobly test will be saved here.
-      resultstore_root_directory: Root directory for Resultstore undeclared
-        outputs.
 
     Returns:
       A Resultstore XML node representing a single test case.
@@ -577,7 +558,6 @@ def _process_record(
         entry,
         properties_element,
         mobly_base_directory,
-        resultstore_root_directory,
     )
 
     if entry[records.TestResultEnums.RECORD_UID] is not None:
@@ -655,28 +635,25 @@ def _process_record(
 
 
 def convert(
-        mobly_results_path: str,
-        mobly_base_directory: Optional[str] = None,
-        resultstore_root_directory: Optional[str] = None,
+        mobly_results_path: pathlib.Path,
+        mobly_base_directory: Optional[pathlib.Path] = None,
 ) -> ElementTree.ElementTree:
     """Converts a Mobly results summary file to Resultstore XML schema.
 
-    The mobly_base_directory and resultstore_root_directory will be used to
-    compute the file links for each Resultstore tree element. If these are
-    absent then the file links will be omitted.
+    The mobly_base_directory will be used to compute the file links for each
+    Resultstore tree element. If it is absent then the file links will be
+    omitted.
 
     Args:
       mobly_results_path: Path to the Mobly summary YAML file.
       mobly_base_directory: Base directory of the Mobly test.
-      resultstore_root_directory: Root directory for Resultstore undeclared
-        outputs.
 
     Returns:
       A Resultstore XML tree for the Mobly test.
     """
     logging.info('Generating Resultstore tree...')
 
-    with open(mobly_results_path, 'r', encoding='utf-8') as f:
+    with mobly_results_path.open('r', encoding='utf-8') as f:
         summary_entries = list(
             yaml.safe_load_all(_ILLEGAL_YAML_CHARS.sub('', f.read()))
         )
@@ -694,21 +671,16 @@ def convert(
     mobly_root_properties = _create_or_return_properties_element(
         mobly_test_root)
     # Add files under the Mobly root directory to the Mobly test suite node.
-    if (
-            mobly_base_directory is not None
-            and resultstore_root_directory is not None
-    ):
+    if mobly_base_directory is not None:
         file_counter = 0
-        for filename in os.listdir(mobly_base_directory):
-            file_path = os.path.join(mobly_base_directory, filename)
-            if not os.path.isfile(file_path):
+        for file_path in mobly_base_directory.iterdir():
+            if not file_path.is_file():
                 continue
-            relative_path = os.path.relpath(file_path,
-                                            resultstore_root_directory)
+            relative_path = file_path.relative_to(mobly_base_directory)
             _add_or_update_property_element(
                 mobly_root_properties,
                 f'test_output{file_counter}',
-                as_posix_path(relative_path),
+                str(relative_path.as_posix()),
             )
             file_counter += 1
 
@@ -760,10 +732,7 @@ def convert(
         else:
             reran_node = None
         class_elements[class_name].append(
-            _process_record(
-                entry, reran_node, mobly_base_directory,
-                resultstore_root_directory
-            )
+            _process_record(entry, reran_node, mobly_base_directory)
         )
 
     user_data_entries = [

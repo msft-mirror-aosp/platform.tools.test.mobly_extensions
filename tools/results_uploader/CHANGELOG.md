@@ -1,5 +1,21 @@
 # Mobly Results Uploader release history
 
+## 0.4 (2024-05-16)
+
+### New
+* Simplified CLI.
+  * Upload directly using `results_uploader /path/to/mobly_dir`.
+  * The storage bucket name defaults to the GCP project name.
+* Automatically display the suite name in the header if specified by the suite.
+
+### Fixes
+* Open certain text-format files without the `.txt` extension directly
+  in-browser, instead of opening a download prompt.
+* The generated link now points directly to the "Tests" dashboard.
+* Additionally show passing/flaky test cases by default, instead of only
+  failed/errored ones.
+
+
 ## 0.3 (2024-04-10)
 
 ### Fixes

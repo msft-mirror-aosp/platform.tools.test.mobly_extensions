@@ -19,8 +19,9 @@
 import argparse
 import dataclasses
 import datetime
+from importlib import resources
 import logging
-import os
+import mimetypes
 import pathlib
 import platform
 import shutil
@@ -41,7 +42,6 @@ with warnings.catch_warnings():
 
 logging.getLogger('googleapiclient').setLevel(logging.WARNING)
 
-
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
 _DISCOVERY_SERVICE_URL = (
@@ -54,6 +54,7 @@ _UNDECLARED_OUTPUTS = 'undeclared_outputs/'
 _TEST_SUMMARY_YAML = 'test_summary.yaml'
 _TEST_LOG_INFO = 'test_log.INFO'
 
+_SUITE_NAME = 'suite_name'
 _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
@@ -82,33 +83,32 @@ class _TestResultInfo:
     target_id: str | None = None
 
 
-def _convert_results(mobly_dir: str, dest_dir: str) -> _TestResultInfo:
-    """Converts Mobly test results into a Resultstore artifacts."""
+def _convert_results(
+        mobly_dir: pathlib.Path, dest_dir: pathlib.Path) -> _TestResultInfo:
+    """Converts Mobly test results into Resultstore artifacts."""
     test_result_info = _TestResultInfo()
     logging.info('Converting raw Mobly logs into Resultstore artifacts...')
     # Generate the test.xml
-    mobly_yaml_path = os.path.join(mobly_dir, _TEST_SUMMARY_YAML)
-    if os.path.isfile(mobly_yaml_path):
-        test_xml = mobly_result_converter.convert(
-            mobly_yaml_path, mobly_dir, mobly_dir
-        )
+    mobly_yaml_path = mobly_dir.joinpath(_TEST_SUMMARY_YAML)
+    if mobly_yaml_path.is_file():
+        test_xml = mobly_result_converter.convert(mobly_yaml_path, mobly_dir)
         ElementTree.indent(test_xml)
         test_xml.write(
-            os.path.join(dest_dir, _TEST_XML),
+            str(dest_dir.joinpath(_TEST_XML)),
             encoding='utf-8',
             xml_declaration=True,
         )
         test_result_info = _get_test_result_info_from_test_xml(test_xml)
 
     # Copy test_log.INFO to test.log
-    test_log_info = os.path.join(mobly_dir, _TEST_LOG_INFO)
-    if os.path.isfile(test_log_info):
-        shutil.copyfile(test_log_info, os.path.join(dest_dir, _TEST_LOGS))
+    test_log_info = mobly_dir.joinpath(_TEST_LOG_INFO)
+    if test_log_info.is_file():
+        shutil.copyfile(test_log_info, dest_dir.joinpath(_TEST_LOGS))
 
     # Copy directory to undeclared_outputs/
     shutil.copytree(
         mobly_dir,
-        os.path.join(dest_dir, _UNDECLARED_OUTPUTS),
+        dest_dir.joinpath(_UNDECLARED_OUTPUTS),
         dirs_exist_ok=True,
     )
     return test_result_info
@@ -144,16 +144,22 @@ def _get_test_result_info_from_test_xml(
         if all_skipped:
             test_result_info.status = _Status.SKIPPED
 
-    # Set target ID based on test class names and run_identifier property
-    test_class_names = [
-        test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
-        for test_class_element in test_class_elements
-    ]
-    target_id = '+'.join(test_class_names)
+    # Set target ID based on test class names, suite name, and custom run
+    # identifier.
+    suite_name_value = None
+    run_identifier_value = None
     properties_element = mobly_suite_element.find(
         f'./{_ResultstoreTreeTags.PROPERTIES.value}'
     )
     if properties_element is not None:
+        suite_name = properties_element.find(
+            f'./{_ResultstoreTreeTags.PROPERTY.value}'
+            f'[@{_ResultstoreTreeAttributes.NAME.value}="{_SUITE_NAME}"]'
+        )
+        if suite_name is not None:
+            suite_name_value = suite_name.get(
+                _ResultstoreTreeAttributes.VALUE.value
+            )
         run_identifier = properties_element.find(
             f'./{_ResultstoreTreeTags.PROPERTY.value}'
             f'[@{_ResultstoreTreeAttributes.NAME.value}="{_RUN_IDENTIFIER}"]'
@@ -162,18 +168,33 @@ def _get_test_result_info_from_test_xml(
             run_identifier_value = run_identifier.get(
                 _ResultstoreTreeAttributes.VALUE.value
             )
-            target_id = f'{target_id} ({run_identifier_value})'
+    if suite_name_value:
+        target_id = suite_name_value
+    else:
+        test_class_names = [
+            test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
+            for test_class_element in test_class_elements
+        ]
+        target_id = '+'.join(test_class_names)
+    if run_identifier_value:
+        target_id = f'{target_id} {run_identifier_value}'
+
     test_result_info.target_id = target_id
     return test_result_info
 
 
 def _upload_dir_to_gcs(
-        src_dir: str, gcs_bucket: str, gcs_dir: str
+        src_dir: pathlib.Path, gcs_bucket: str, gcs_dir: str
 ) -> list[str]:
     """Uploads the given directory to a GCS bucket."""
+    # Set correct MIME types for certain text-format files.
+    with resources.as_file(
+            resources.files('data').joinpath('mime.types')) as path:
+        mimetypes.init([path])
+
     bucket_obj = storage.Client().bucket(gcs_bucket)
 
-    glob = pathlib.Path(src_dir).expanduser().rglob('*')
+    glob = src_dir.rglob('*')
     file_paths = [
         str(path.relative_to(src_dir).as_posix())
         for path in glob
@@ -181,9 +202,9 @@ def _upload_dir_to_gcs(
     ]
 
     logging.info(
-        'Uploading %s files from %s to Cloud Storage bucket %s/%s...',
+        'Uploading %s files from %s to Cloud Storage directory %s/%s...',
         len(file_paths),
-        src_dir,
+        str(src_dir),
         gcs_bucket,
         gcs_dir,
     )
@@ -201,7 +222,7 @@ def _upload_dir_to_gcs(
     results = transfer_manager.upload_many_from_filenames(
         bucket_obj,
         file_paths,
-        source_directory=src_dir,
+        source_directory=str(src_dir),
         blob_name_prefix=blob_name_prefix,
         worker_type=worker_type,
     )
@@ -223,7 +244,7 @@ def _upload_dir_to_gcs(
     return success_paths
 
 
-def _prompt_user_upload(src_dir: str, gcs_bucket: str) -> None:
+def _prompt_user_upload(src_dir: pathlib.Path, gcs_bucket: str) -> None:
     """Prompts the user to manually upload files to GCS."""
     print(_GCS_UPLOAD_INSTRUCTIONS % (gcs_bucket, src_dir))
     while True:
@@ -270,14 +291,13 @@ def main():
         '-v', '--verbose', action='store_true', help='Enable debug logs.'
     )
     parser.add_argument(
-        '--mobly_dir',
-        required=True,
+        'mobly_dir',
         help='Directory on host where Mobly results are stored.',
     )
     parser.add_argument(
         '--gcs_bucket',
-        required=True,
-        help='Bucket in GCS where test artifacts are uploaded.',
+        help='Bucket in GCS where test artifacts are uploaded. If unspecified, '
+             'use the current GCP project name as the bucket name.',
     )
     parser.add_argument(
         '--gcs_dir',
@@ -287,27 +307,36 @@ def main():
             'current timestamp as the GCS directory name.'
         ),
     )
-    parser.add_argument('--target_id', help='Custom target ID.')
+    parser.add_argument(
+        '--test_title',
+        help='Custom test title to display in the result UI.'
+    )
 
     args = parser.parse_args()
-    logging.basicConfig(level=(logging.DEBUG if args.verbose else logging.INFO))
-    gcs_dir_name = (
+    logging.basicConfig(
+        format='%(levelname)s: %(message)s',
+        level=(logging.DEBUG if args.verbose else logging.INFO)
+    )
+    _, project_id = google.auth.default()
+    gcs_bucket = project_id if args.gcs_bucket is None else args.gcs_bucket
+    gcs_dir = (
         datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         if args.gcs_dir is None
         else args.gcs_dir
     )
     with tempfile.TemporaryDirectory() as tmp:
-        converted_dir = os.path.join(tmp, gcs_dir_name)
-        os.mkdir(converted_dir)
-        test_result_info = _convert_results(args.mobly_dir, converted_dir)
+        converted_dir = pathlib.Path(tmp).joinpath(gcs_dir)
+        converted_dir.mkdir()
+        mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
+        test_result_info = _convert_results(mobly_dir, converted_dir)
         gcs_files = _upload_dir_to_gcs(
-            converted_dir, args.gcs_bucket, gcs_dir_name)
+            converted_dir, gcs_bucket, gcs_dir)
     _upload_to_resultstore(
-        args.gcs_bucket,
-        gcs_dir_name,
+        gcs_bucket,
+        gcs_dir,
         gcs_files,
         test_result_info.status,
-        args.target_id or test_result_info.target_id,
+        args.test_title or test_result_info.target_id,
     )
 
 
