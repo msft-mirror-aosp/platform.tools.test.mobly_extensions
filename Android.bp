@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+package {
+    default_team: "trendy_team_fwk_thread_network",
+}
+
 python_library_host {
     name: "mobly_device_flags",
     srcs: ["tools/device_flags.py"],
@@ -32,16 +36,4 @@ python_test_host {
         "libaconfig_python_proto",
         "mobly_device_flags",
     ],
-}
-
-// Tool to upload Mobly test results to Resultstore.
-// If releasing as new version "x.y", rename the generated zip file to
-// "results_uploader_x_y.zip".
-genrule {
-    name: "mobly_results_uploader",
-    tools: ["soong_zip"],
-    srcs: ["tools/results_uploader/**/*"],
-    cmd: "RESULTS_UPLOADER=tools/test/mobly_extensions/tools/results_uploader;" +
-        "$(location soong_zip) -o $(out) -C $${RESULTS_UPLOADER} -D $${RESULTS_UPLOADER};",
-    out: ["results_uploader.zip"],
 }

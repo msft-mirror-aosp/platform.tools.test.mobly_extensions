@@ -18,7 +18,7 @@ accounts), allowing for easy tracking and debugging.
 To start using the Results Uploader, you need to be able to access the shared
 Google Cloud Storage bucket:
 1. Confirm/request access to the shared GCP project with your Google contact.
-   The Googler will give you both a project name and storage bucket name to use.
+   The Googler will give you a project name to use.
 2. Install the gcloud CLI from https://cloud.google.com/sdk/docs/install
     * If installation fails with the above method, try the alternative linked
       [here](https://cloud.google.com/sdk/docs/downloads-versioned-archives#installation_instructions).
@@ -32,8 +32,7 @@ Google Cloud Storage bucket:
     * When prompted to log in on your browser, follow the instruction to log in
       to Cloud SDK. Use the same account for which you requested access in
       step 1.
-4. Download the provided `results_uploader.zip` and extract its files to a local
-   directory.
+4. Download the provided `results_uploader-{version}.tar.gz`.
 
 ## How to upload results
 1. Create a new terminal and run the following installation commands (first-time
@@ -44,14 +43,14 @@ Google Cloud Storage bucket:
 
     python3 -m venv venv
     source venv/bin/activate
-    python3 -m pip install <results_uploader_dir>
+    python3 -m pip install results_uploader-{version}.tar.gz
     ```
     ```cmd
     :: on Windows
 
     python -m venv venv
     venv\Scripts\activate
-    python -m pip install <results_uploader_dir>
+    python -m pip install results_uploader-{version}.tar.gz
     ```
 
 2. At the end of a completed test run, you'll see the final lines on the console
@@ -68,9 +67,9 @@ Google Cloud Storage bucket:
 3. Run the uploader command, setting the `artifacts_folder` as the path recorded
    in the previous step.
     ```bash
-    results_uploader --mobly_dir=<artifacts_folder> --gcs_bucket=<cloud_storage_bucket>
+    results_uploader <artifacts_folder>
     ```
 
 4. If successful, at the end of the upload process you will get a link beginning
-   with http://source.cloud.google.com. Simply share this link to others who
+   with http://btx.cloud.google.com. Simply share this link to others who
    wish to view your test results.

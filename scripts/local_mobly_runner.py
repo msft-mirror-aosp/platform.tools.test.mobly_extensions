@@ -82,6 +82,19 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        '--tests',
+        nargs='+',
+        type=str,
+        metavar='TEST_CLASS[.TEST_CASE]',
+        help=(
+            'A list of test classes and optional tests to execute within the '
+            'package or file. E.g. `--tests TestClassA TestClassB.test_b` '
+            'would run all of test class TestClassA, but only test_b in '
+            'TestClassB. This option cannot be used if multiple packages/test '
+            'paths are specified.'
+        ),
+    )
+    parser.add_argument(
         '-b',
         '--build',
         action='store_true',
@@ -128,6 +141,16 @@ def _parse_args() -> argparse.Namespace:
         parser.error('Option --build requires --module to be specified.')
     if args.install_apks and not (args.module or args.packages):
         parser.error('Option --install_apks requires --module or --packages.')
+    if args.tests is not None:
+        multiple_packages = (args.packages is not None
+                             and len(args.packages.split(',')) > 1)
+        multiple_test_paths = (args.test_paths is not None
+                               and len(args.test_paths.split(',')) > 1)
+        if multiple_packages or multiple_test_paths:
+            parser.error(
+                'Option --tests cannot be used if multiple --packages or '
+                '--test_paths are specified.'
+            )
 
     args.novenv = args.novenv or (args.test_paths is not None)
     return args
@@ -333,6 +356,7 @@ def _generate_mobly_config(serials: Optional[List[str]] = None) -> str:
 def _run_mobly_tests(
         python_executable: Optional[str],
         mobly_bins: List[str],
+        tests: Optional[List[str]],
         config: str,
         test_bed: str,
         log_path: Optional[str]
@@ -347,6 +371,9 @@ def _run_mobly_tests(
             env['MOBLY_LOGPATH'] = str(base_log_path)
         cmd = [python_executable] if python_executable else []
         cmd += [mobly_bin, '-c', config, '-tb', test_bed]
+        if tests is not None:
+            cmd.append('--tests')
+            cmd += tests
         _padded_print(f'Running Mobly test {bin_name}.')
         print(f'Command: {cmd}\n')
         subprocess.run(cmd, env=env)
@@ -400,8 +427,8 @@ def main() -> None:
     config = args.config or _generate_mobly_config(serials)
 
     # Run the tests
-    _run_mobly_tests(python_executable, mobly_bins, config, args.test_bed,
-                     args.log_path)
+    _run_mobly_tests(python_executable, mobly_bins, args.tests, config,
+                     args.test_bed, args.log_path)
 
     # Clean up temporary dirs/files
     _clean_up()
