@@ -20,7 +20,8 @@ Example:
     - Run a test module.
     local_mobly_runner.py -m my_test_module
 
-    - Run a test module. Build the module and install test APKs before running the test.
+    - Run a test module. Build the module and install test APKs before running
+      the test.
     local_mobly_runner.py -m my_test_module -b -i
 
     - Run a test module with specific Android devices.
@@ -35,6 +36,8 @@ Please run `local_mobly_runner.py -h` for a full list of options.
 import argparse
 import json
 import os
+from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -46,6 +49,8 @@ _LOCAL_SETUP_INSTRUCTIONS = (
     '\n\tcd <repo_root>; set -a; source build/envsetup.sh; set +a; lunch'
     ' <target>'
 )
+_DEFAULT_MOBLY_LOGPATH = Path('/tmp/logs/mobly')
+_DEFAULT_TESTBED = 'LocalTestBed'
 
 _tempdirs = []
 _tempfiles = []
@@ -77,6 +82,19 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        '--tests',
+        nargs='+',
+        type=str,
+        metavar='TEST_CLASS[.TEST_CASE]',
+        help=(
+            'A list of test classes and optional tests to execute within the '
+            'package or file. E.g. `--tests TestClassA TestClassB.test_b` '
+            'would run all of test class TestClassA, but only test_b in '
+            'TestClassB. This option cannot be used if multiple packages/test '
+            'paths are specified.'
+        ),
+    )
+    parser.add_argument(
         '-b',
         '--build',
         action='store_true',
@@ -91,18 +109,23 @@ def _parse_args() -> argparse.Namespace:
             ' devices. Requires the -m or -p options.'
         ),
     )
-    group2 = parser.add_mutually_exclusive_group()
-    group2.add_argument(
+    parser.add_argument(
         '-s',
         '--serials',
         help=(
             'Specify the devices to test with a comma-delimited list of device '
-            'serials.'
+            'serials. If --config is also specified, this option will only be '
+            'used to select the devices to install APKs.'
         ),
     )
-    group2.add_argument(
+    parser.add_argument(
         '-c', '--config', help='Provide a custom Mobly config for the test.'
     )
+    parser.add_argument('-tb', '--test_bed',
+                        default=_DEFAULT_TESTBED,
+                        help='Select the testbed for the test. If left '
+                             f'unspecified, "{_DEFAULT_TESTBED}" will be '
+                             'selected by default.')
     parser.add_argument('-lp', '--log_path',
                         help='Specify a path to store logs.')
     parser.add_argument(
@@ -118,6 +141,16 @@ def _parse_args() -> argparse.Namespace:
         parser.error('Option --build requires --module to be specified.')
     if args.install_apks and not (args.module or args.packages):
         parser.error('Option --install_apks requires --module or --packages.')
+    if args.tests is not None:
+        multiple_packages = (args.packages is not None
+                             and len(args.packages.split(',')) > 1)
+        multiple_test_paths = (args.test_paths is not None
+                               and len(args.test_paths.split(',')) > 1)
+        if multiple_packages or multiple_test_paths:
+            parser.error(
+                'Option --tests cannot be used if multiple --packages or '
+                '--test_paths are specified.'
+            )
 
     args.novenv = args.novenv or (args.test_paths is not None)
     return args
@@ -187,12 +220,14 @@ def _resolve_test_resources(
     Returns:
       Tuple of (mobly_bins, requirement_files, test_apks).
     """
+    _padded_print('Resolving test resources.')
     mobly_bins = []
     requirements_files = []
     test_apks = []
     if args.test_paths:
         mobly_bins.extend(args.test_paths.split(','))
     elif args.module:
+        print(f'Resolving test module {args.module}.')
         for path in _get_module_artifacts(args.module):
             if path.endswith(args.module):
                 mobly_bins.append(path)
@@ -204,7 +239,7 @@ def _resolve_test_resources(
         unzip_root = tempfile.mkdtemp(prefix='mobly_unzip_')
         _tempdirs.append(unzip_root)
         for package in args.packages.split(','):
-            mobly_bins.append(package)
+            mobly_bins.append(os.path.abspath(package))
             unzip_dir = os.path.join(unzip_root, os.path.basename(package))
             print(f'Unzipping test package {package} to {unzip_dir}.')
             os.makedirs(unzip_dir)
@@ -231,15 +266,14 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
     Returns:
       Path to the virtualenv's Python interpreter.
     """
-    if not requirements_files:
-        print('No requirements.txt file found. Aborting.')
-        exit(1)
-
     venv_dir = tempfile.mkdtemp(prefix='venv_')
     _padded_print(f'Creating virtualenv at {venv_dir}.')
     subprocess.check_call([sys.executable, '-m', 'venv', venv_dir])
     _tempdirs.append(venv_dir)
-    venv_executable = os.path.join(venv_dir, 'bin/python3')
+    if platform.system() == 'Windows':
+        venv_executable = os.path.join(venv_dir, 'Scripts', 'python.exe')
+    else:
+        venv_executable = os.path.join(venv_dir, 'bin', 'python3')
 
     # Install requirements
     for requirements_file in requirements_files:
@@ -248,6 +282,19 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
             [venv_executable, '-m', 'pip', 'install', '-r', requirements_file]
         )
     return venv_executable
+
+
+def _parse_adb_devices(lines: List[str]) -> List[str]:
+    """Parses result from 'adb devices' into a list of serials.
+
+    Derived from mobly.controllers.android_device.
+    """
+    results = []
+    for line in lines:
+        tokens = line.strip().split('\t')
+        if len(tokens) == 2 and tokens[1] == 'device':
+            results.append(tokens[0])
+    return results
 
 
 def _install_apks(
@@ -264,14 +311,12 @@ def _install_apks(
     """
     _padded_print('Installing test APKs.')
     if not serials:
-        serials = (
+        adb_devices_out = (
             subprocess.check_output(
-                'adb devices | tail -n +2 | cut -f 1', shell=True
-            )
-            .decode('utf-8')
-            .strip()
-            .splitlines()
+                ['adb', 'devices']
+            ).decode('utf-8').strip().splitlines()
         )
+        serials = _parse_adb_devices(adb_devices_out)
     for apk in apks:
         for serial in serials:
             print(f'Installing {apk} on device {serial}.')
@@ -294,13 +339,13 @@ def _generate_mobly_config(serials: Optional[List[str]] = None) -> str:
     """
     config = {
         'TestBeds': [{
-            'Name': 'LocalTestBed',
+            'Name': _DEFAULT_TESTBED,
             'Controllers': {
                 'AndroidDevice': serials if serials else '*',
             },
         }]
     }
-    _, config_path = tempfile.mkstemp(prefix='mobly_config_')
+    _, config_path = tempfile.mkstemp(prefix='mobly_config_', suffix='.yaml')
     _padded_print(f'Generating Mobly config at {config_path}.')
     with open(config_path, 'w') as f:
         json.dump(config, f)
@@ -309,21 +354,33 @@ def _generate_mobly_config(serials: Optional[List[str]] = None) -> str:
 
 
 def _run_mobly_tests(
-        python_executable: str,
+        python_executable: Optional[str],
         mobly_bins: List[str],
+        tests: Optional[List[str]],
         config: str,
-        log_path: Optional[str] = None,
+        test_bed: str,
+        log_path: Optional[str]
 ) -> None:
     """Runs the Mobly tests with the specified binary and config."""
     env = os.environ.copy()
+    base_log_path = _DEFAULT_MOBLY_LOGPATH
     for mobly_bin in mobly_bins:
         bin_name = os.path.basename(mobly_bin)
         if log_path:
-            env['MOBLY_LOGPATH'] = os.path.join(log_path, bin_name)
-        cmd = [python_executable, mobly_bin, '-c', config]
+            base_log_path = Path(log_path, bin_name)
+            env['MOBLY_LOGPATH'] = str(base_log_path)
+        cmd = [python_executable] if python_executable else []
+        cmd += [mobly_bin, '-c', config, '-tb', test_bed]
+        if tests is not None:
+            cmd.append('--tests')
+            cmd += tests
         _padded_print(f'Running Mobly test {bin_name}.')
         print(f'Command: {cmd}\n')
         subprocess.run(cmd, env=env)
+        # Save a copy of the config in the log directory.
+        latest_logs = base_log_path.joinpath(test_bed, 'latest')
+        if latest_logs.is_dir():
+            shutil.copy2(config, latest_logs)
 
 
 def _clean_up() -> None:
@@ -340,6 +397,11 @@ def _clean_up() -> None:
 def main() -> None:
     args = _parse_args()
 
+    # args.module is not supported in Windows
+    if args.module and platform.system() == 'Windows':
+        print('The --module option is not supported in Windows. Aborting.')
+        exit(1)
+
     # Build the test module if requested by user
     if args.build:
         _build_module(args.module)
@@ -354,15 +416,19 @@ def main() -> None:
         _install_apks(test_apks, serials)
 
     # Set up the Python virtualenv, if necessary
-    python_executable = (
-        sys.executable if args.novenv else _setup_virtualenv(requirements_files)
-    )
+    python_executable = None
+    if args.novenv:
+        if args.test_paths is not None:
+            python_executable = sys.executable
+    else:
+        python_executable = _setup_virtualenv(requirements_files)
 
     # Generate the Mobly config, if necessary
     config = args.config or _generate_mobly_config(serials)
 
     # Run the tests
-    _run_mobly_tests(python_executable, mobly_bins, config, args.log_path)
+    _run_mobly_tests(python_executable, mobly_bins, args.tests, config,
+                     args.test_bed, args.log_path)
 
     # Clean up temporary dirs/files
     _clean_up()
