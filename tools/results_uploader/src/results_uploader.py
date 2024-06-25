@@ -49,7 +49,7 @@ _DISCOVERY_SERVICE_URL = (
 )
 _TEST_XML = 'test.xml'
 _TEST_LOGS = 'test.log'
-_UNDECLARED_OUTPUTS = 'undeclared_outputs/'
+_UNDECLARED_OUTPUTS = 'undeclared_outputs'
 
 _TEST_SUMMARY_YAML = 'test_summary.yaml'
 _TEST_LOG_INFO = 'test_log.INFO'
