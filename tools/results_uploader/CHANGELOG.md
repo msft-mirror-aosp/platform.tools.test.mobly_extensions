@@ -1,5 +1,13 @@
 # Mobly Results Uploader release history
 
+## 0.5 (2024-06-25)
+
+### New
+* Use `pathlib` for all file operations.
+  * Support specifying relative paths.
+  * Support specifying paths with backslash separators in Windows.
+
+
 ## 0.4 (2024-05-16)
 
 ### New
