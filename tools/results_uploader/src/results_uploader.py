@@ -224,6 +224,7 @@ def _upload_dir_to_gcs(
         file_paths,
         source_directory=str(src_dir),
         blob_name_prefix=blob_name_prefix,
+        skip_if_exists=True,
         worker_type=worker_type,
         upload_kwargs={'timeout': timeout},
     )
