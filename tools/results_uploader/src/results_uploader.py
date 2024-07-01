@@ -49,7 +49,7 @@ _DISCOVERY_SERVICE_URL = (
 )
 _TEST_XML = 'test.xml'
 _TEST_LOGS = 'test.log'
-_UNDECLARED_OUTPUTS = 'undeclared_outputs/'
+_UNDECLARED_OUTPUTS = 'undeclared_outputs'
 
 _TEST_SUMMARY_YAML = 'test_summary.yaml'
 _TEST_LOG_INFO = 'test_log.INFO'
@@ -58,7 +58,7 @@ _SUITE_NAME = 'suite_name'
 _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
-
+_GCS_DEFAULT_TIMEOUT_SECS = 300
 _GCS_UPLOAD_INSTRUCTIONS = (
     '\nAutomatic upload to GCS failed.\n'
     'Please follow the steps below to manually upload files:\n'
@@ -184,7 +184,7 @@ def _get_test_result_info_from_test_xml(
 
 
 def _upload_dir_to_gcs(
-        src_dir: pathlib.Path, gcs_bucket: str, gcs_dir: str
+        src_dir: pathlib.Path, gcs_bucket: str, gcs_dir: str, timeout: int
 ) -> list[str]:
     """Uploads the given directory to a GCS bucket."""
     # Set correct MIME types for certain text-format files.
@@ -224,7 +224,9 @@ def _upload_dir_to_gcs(
         file_paths,
         source_directory=str(src_dir),
         blob_name_prefix=blob_name_prefix,
+        skip_if_exists=True,
         worker_type=worker_type,
+        upload_kwargs={'timeout': timeout},
     )
 
     success_paths = []
@@ -308,10 +310,17 @@ def main():
         ),
     )
     parser.add_argument(
+        '--gcs_upload_timeout',
+        type=int,
+        default=_GCS_DEFAULT_TIMEOUT_SECS,
+        help=(
+            'Timeout (in seconds) to upload each file to GCS. '
+            f'Default: {_GCS_DEFAULT_TIMEOUT_SECS} seconds.'),
+    )
+    parser.add_argument(
         '--test_title',
         help='Custom test title to display in the result UI.'
     )
-
     args = parser.parse_args()
     logging.basicConfig(
         format='%(levelname)s: %(message)s',
@@ -330,7 +339,7 @@ def main():
         mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
         test_result_info = _convert_results(mobly_dir, converted_dir)
         gcs_files = _upload_dir_to_gcs(
-            converted_dir, gcs_bucket, gcs_dir)
+            converted_dir, gcs_bucket, gcs_dir, args.gcs_upload_timeout)
     _upload_to_resultstore(
         gcs_bucket,
         gcs_dir,
