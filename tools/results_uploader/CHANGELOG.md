@@ -1,5 +1,13 @@
 # Mobly Results Uploader release history
 
+## 0.5.1 (2024-06-28)
+
+### Fixes
+
+* Extend the default timeout for GCS uploads and support custom timeout values.
+* Enable automatic retry of GCS uploads following connection errors.
+
+
 ## 0.5 (2024-06-25)
 
 ### New
