@@ -19,7 +19,7 @@
 import datetime
 import enum
 import logging
-import posixpath
+import pathlib
 import urllib.parse
 import uuid
 
@@ -223,22 +223,28 @@ class ResultstoreClient:
         res = request.execute(http=self._http)
         logging.debug('invocations.targets.configuredTargets.create: %s', res)
 
-    def create_action(self, gcs_path: str, artifacts: list[str]) -> str:
+    def create_action(
+            self, gcs_bucket: str, gcs_base_dir: str, artifacts: list[str]
+    ) -> str:
         """Creates an action.
 
         Args:
-          gcs_path: The directory in GCS where artifacts are stored.
-          artifacts: List of paths (relative to gcs_path) to the test artifacts.
+          gcs_bucket: The bucket in GCS where artifacts are stored.
+          gcs_base_dir: Base directory of the artifacts in the GCS bucket.
+          artifacts: List of paths (relative to gcs_bucket) to the test
+            artifacts.
 
         Returns:
           The action ID.
         """
         logging.debug('creating action in %s...', self._configured_target_name)
         action_id = str(uuid.uuid4())
-        files = [
-            {'uid': path, 'uri': posixpath.join(gcs_path, path)}
-            for path in artifacts
-        ]
+
+        files = []
+        for path in artifacts:
+            uid = str(pathlib.PurePosixPath(path).relative_to(gcs_base_dir))
+            uri = f'gs://{gcs_bucket}/{path}'
+            files.append({'uid': uid, 'uri': uri})
         action = {
             'id': {
                 'invocationId': self._invocation_id,
