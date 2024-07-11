@@ -184,6 +184,7 @@ class ResultstoreClient:
                 'targetId': self._target_id,
             },
             'targetAttributes': {'type': 'TEST', 'language': 'PY'},
+            'visible': True,
         }
         request = (
             self._service.invocations()
