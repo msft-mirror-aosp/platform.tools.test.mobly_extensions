@@ -18,6 +18,7 @@
 
 import datetime
 import enum
+import importlib.metadata
 import logging
 import pathlib
 import urllib.parse
@@ -30,6 +31,8 @@ import httplib2
 
 _DEFAULT_CONFIGURATION = 'default'
 _RESULTSTORE_BASE_LINK = 'https://btx.cloud.google.com'
+
+_PACKAGE_NAME = 'results_uploader'
 
 
 class Status(enum.Enum):
@@ -122,8 +125,12 @@ class ResultstoreClient:
             return None
         invocation = {
             'timing': {
-                'startTime': datetime.datetime.utcnow().isoformat() + 'Z'},
-            'invocationAttributes': {'projectId': self._project_id},
+                'startTime': datetime.datetime.utcnow().isoformat() + 'Z'
+            },
+            'invocationAttributes': {
+                'projectId': self._project_id,
+                'labels': [_get_tool_version_label()],
+            },
         }
         self._request_id = str(uuid.uuid4())
         self._invocation_id = str(uuid.uuid4())
@@ -394,3 +401,11 @@ class ResultstoreClient:
         self._authorization_token = ''
         self._target_id = ''
         self._encoded_target_id = ''
+
+
+def _get_tool_version_label() -> str:
+    """Returns a string label representing the uploader name and version."""
+    version = importlib.metadata.version(_PACKAGE_NAME)
+    if version:
+        return f'{_PACKAGE_NAME}=={version}'
+    return _PACKAGE_NAME
