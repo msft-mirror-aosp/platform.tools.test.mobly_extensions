@@ -18,8 +18,9 @@
 
 import datetime
 import enum
+import importlib.metadata
 import logging
-import posixpath
+import pathlib
 import urllib.parse
 import uuid
 
@@ -30,6 +31,8 @@ import httplib2
 
 _DEFAULT_CONFIGURATION = 'default'
 _RESULTSTORE_BASE_LINK = 'https://btx.cloud.google.com'
+
+_PACKAGE_NAME = 'results_uploader'
 
 
 class Status(enum.Enum):
@@ -122,8 +125,12 @@ class ResultstoreClient:
             return None
         invocation = {
             'timing': {
-                'startTime': datetime.datetime.utcnow().isoformat() + 'Z'},
-            'invocationAttributes': {'projectId': self._project_id},
+                'startTime': datetime.datetime.utcnow().isoformat() + 'Z'
+            },
+            'invocationAttributes': {
+                'projectId': self._project_id,
+                'labels': [_get_tool_version_label()],
+            },
         }
         self._request_id = str(uuid.uuid4())
         self._invocation_id = str(uuid.uuid4())
@@ -184,6 +191,7 @@ class ResultstoreClient:
                 'targetId': self._target_id,
             },
             'targetAttributes': {'type': 'TEST', 'language': 'PY'},
+            'visible': True,
         }
         request = (
             self._service.invocations()
@@ -223,22 +231,28 @@ class ResultstoreClient:
         res = request.execute(http=self._http)
         logging.debug('invocations.targets.configuredTargets.create: %s', res)
 
-    def create_action(self, gcs_path: str, artifacts: list[str]) -> str:
+    def create_action(
+            self, gcs_bucket: str, gcs_base_dir: str, artifacts: list[str]
+    ) -> str:
         """Creates an action.
 
         Args:
-          gcs_path: The directory in GCS where artifacts are stored.
-          artifacts: List of paths (relative to gcs_path) to the test artifacts.
+          gcs_bucket: The bucket in GCS where artifacts are stored.
+          gcs_base_dir: Base directory of the artifacts in the GCS bucket.
+          artifacts: List of paths (relative to gcs_bucket) to the test
+            artifacts.
 
         Returns:
           The action ID.
         """
         logging.debug('creating action in %s...', self._configured_target_name)
         action_id = str(uuid.uuid4())
-        files = [
-            {'uid': path, 'uri': posixpath.join(gcs_path, path)}
-            for path in artifacts
-        ]
+
+        files = []
+        for path in artifacts:
+            uid = str(pathlib.PurePosixPath(path).relative_to(gcs_base_dir))
+            uri = f'gs://{gcs_bucket}/{path}'
+            files.append({'uid': uid, 'uri': uri})
         action = {
             'id': {
                 'invocationId': self._invocation_id,
@@ -387,3 +401,11 @@ class ResultstoreClient:
         self._authorization_token = ''
         self._target_id = ''
         self._encoded_target_id = ''
+
+
+def _get_tool_version_label() -> str:
+    """Returns a string label representing the uploader name and version."""
+    version = importlib.metadata.version(_PACKAGE_NAME)
+    if version:
+        return f'{_PACKAGE_NAME}=={version}'
+    return _PACKAGE_NAME
