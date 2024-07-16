@@ -21,6 +21,7 @@ import tempfile
 from typing import Any
 
 from mobly.controllers import android_device
+from mobly.controllers.android_device_lib import adb
 from protos import aconfig_pb2
 
 _ACONFIG_PARTITIONS = ('product', 'system', 'system_ext', 'vendor')
@@ -120,7 +121,14 @@ class DeviceFlags:
                     '/', partition, 'etc', _ACONFIG_PB_FILE)
                 host_path = os.path.join(
                     tmp_dir, f'{partition}_{_ACONFIG_PB_FILE}')
-                self._ad.adb.pull([device_path, host_path])
+                try:
+                    self._ad.adb.pull([device_path, host_path])
+                except adb.AdbError as e:
+                    self._ad.log.warning(
+                        'Failed to pull aconfig file %s from device: %s',
+                        device_path, e
+                    )
+                    continue
                 with open(host_path, 'rb') as f:
                     parsed_flags = aconfig_pb2.parsed_flags.FromString(f.read())
                 for flag in parsed_flags.parsed_flag:
