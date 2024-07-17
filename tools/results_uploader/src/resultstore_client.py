@@ -133,8 +133,14 @@ class ResultstoreClient:
             },
             'invocationAttributes': {
                 'projectId': self._project_id,
-                'labels': [_get_tool_version_label()] + labels,
+                'labels': labels,
             },
+            'properties': [
+                {
+                    'key': _PACKAGE_NAME,
+                    'value': importlib.metadata.version(_PACKAGE_NAME)
+                }
+            ]
         }
         self._request_id = str(uuid.uuid4())
         self._invocation_id = str(uuid.uuid4())
@@ -405,11 +411,3 @@ class ResultstoreClient:
         self._authorization_token = ''
         self._target_id = ''
         self._encoded_target_id = ''
-
-
-def _get_tool_version_label() -> str:
-    """Returns a string label representing the uploader name and version."""
-    version = importlib.metadata.version(_PACKAGE_NAME)
-    if version:
-        return f'{_PACKAGE_NAME}=={version}'
-    return _PACKAGE_NAME
