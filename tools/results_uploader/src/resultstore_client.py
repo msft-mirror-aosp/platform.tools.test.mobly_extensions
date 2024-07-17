@@ -110,8 +110,12 @@ class ResultstoreClient:
         """Sets the overall test run status."""
         self._status = status
 
-    def create_invocation(self) -> str:
+    def create_invocation(self, labels: list[str]) -> str:
         """Creates an invocation.
+
+        Args:
+            labels: A list of labels to attach to the invocation, as
+              `invocation.invocationAttributes.labels`.
 
         Returns:
           The invocation ID.
@@ -129,7 +133,7 @@ class ResultstoreClient:
             },
             'invocationAttributes': {
                 'projectId': self._project_id,
-                'labels': [_get_tool_version_label()],
+                'labels': [_get_tool_version_label()] + labels,
             },
         }
         self._request_id = str(uuid.uuid4())
