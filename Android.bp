@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+package {
+    default_team: "trendy_team_fwk_thread_network",
+}
+
 python_library_host {
     name: "mobly_device_flags",
     srcs: ["tools/device_flags.py"],

@@ -1,0 +1,3 @@
+# Configure the desired MIME types for Mobly log files in GCS
+text/plain      info debug log
+text/x-yaml     yaml yml
