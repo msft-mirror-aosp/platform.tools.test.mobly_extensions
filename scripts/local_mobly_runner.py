@@ -14,21 +14,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Script for running Android Gerrit-based Mobly tests locally.
+"""Script for running git-based Mobly tests locally.
 
 Example:
-    - Run a test module.
+    - Run an Android platform test module.
     local_mobly_runner.py -m my_test_module
 
-    - Run a test module. Build the module and install test APKs before running
-      the test.
+    - Run an Android platform test module. Build the module and install test
+      APKs before running the test.
     local_mobly_runner.py -m my_test_module -b -i
 
-    - Run a test module with specific Android devices.
+    - Run an Android platform test module with specific Android devices.
     local_mobly_runner.py -m my_test_module -s DEV00001,DEV00002
 
-    - Run a list of zipped Mobly packages (built from `python_test_host`)
+    - Run a list of zipped executable Mobly packages
     local_mobly_runner.py -p test_pkg1,test_pkg2,test_pkg3
+
+    - Install and run a test binary from a Python wheel
+    local_mobly_runner.py -w my-test-0.1-py3-none-any.whl --bin test_suite_a
 
 Please run `local_mobly_runner.py -h` for a full list of options.
 """
@@ -67,11 +70,24 @@ def _parse_args() -> argparse.Namespace:
         description=__doc__)
     group1 = parser.add_mutually_exclusive_group(required=True)
     group1.add_argument(
-        '-m', '--module', help='The Android build module of the test to run.'
+        '-m', '--module',
+        help='The Android platform build module of the test to run.'
     )
     group1.add_argument(
         '-p', '--packages',
-        help='A comma-delimited list of test packages to run.'
+        help=(
+            'A comma-delimited list of test packages to run. The packages '
+            'should be directly executable by the Python interpreter. If '
+            'the package includes a requirements.txt file, deps will '
+            'automatically be installed.'
+        )
+    )
+    group1.add_argument(
+        '-w', '--wheel',
+        help=(
+            'A Python wheel (.whl) containing one or more Mobly test scripts. '
+            'Does not support the --novenv option.'
+        )
     )
     group1.add_argument(
         '-t',
@@ -81,19 +97,7 @@ def _parse_args() -> argparse.Namespace:
             'the --novenv option.'
         ),
     )
-    parser.add_argument(
-        '--tests',
-        nargs='+',
-        type=str,
-        metavar='TEST_CLASS[.TEST_CASE]',
-        help=(
-            'A list of test classes and optional tests to execute within the '
-            'package or file. E.g. `--tests TestClassA TestClassB.test_b` '
-            'would run all of test class TestClassA, but only test_b in '
-            'TestClassB. This option cannot be used if multiple packages/test '
-            'paths are specified.'
-        ),
-    )
+
     parser.add_argument(
         '-b',
         '--build',
@@ -106,7 +110,7 @@ def _parse_args() -> argparse.Namespace:
         action='store_true',
         help=(
             'Install all APKs associated with the module to all specified'
-            ' devices. Requires the -m or -p options.'
+            ' devices. Does not support the -t option.'
         ),
     )
     parser.add_argument(
@@ -128,6 +132,27 @@ def _parse_args() -> argparse.Namespace:
                              'selected by default.')
     parser.add_argument('-lp', '--log_path',
                         help='Specify a path to store logs.')
+
+    parser.add_argument(
+        '--tests',
+        nargs='+',
+        type=str,
+        metavar='TEST_CLASS[.TEST_CASE]',
+        help=(
+            'A list of test classes and optional tests to execute within the '
+            'package or file. E.g. `--tests TestClassA TestClassB.test_b` '
+            'would run all of test class TestClassA, but only test_b in '
+            'TestClassB. This option cannot be used if multiple packages/test '
+            'paths are specified.'
+        ),
+    )
+    parser.add_argument(
+        '--bin',
+        help=(
+            'Name of the binary to run in the installed wheel. Must be '
+            'specified alongside the --wheel option.'
+        ),
+    )
     parser.add_argument(
         '--novenv',
         action='store_true',
@@ -139,8 +164,16 @@ def _parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.build and not args.module:
         parser.error('Option --build requires --module to be specified.')
-    if args.install_apks and not (args.module or args.packages):
-        parser.error('Option --install_apks requires --module or --packages.')
+    if args.wheel:
+        if args.novenv:
+            parser.error('Option --novenv cannot be used with --wheel.')
+        if not args.bin:
+            parser.error('Option --wheel requires --bin to be specified.')
+    if args.bin:
+        if not args.wheel:
+            parser.error('Option --bin requires --wheel to be specified.')
+    if args.install_apks and args.test_paths:
+        parser.error('Option --install_apks cannot be used with --test_paths.')
     if args.tests is not None:
         multiple_packages = (args.packages is not None
                              and len(args.packages.split(',')) > 1)
@@ -209,10 +242,10 @@ def _get_module_artifacts(module: str) -> List[str]:
     return outmod_paths
 
 
-def _resolve_test_resources(
+def _extract_test_resources(
         args: argparse.Namespace,
 ) -> Tuple[List[str], List[str], List[str]]:
-    """Resolve test resources from the given test module or package.
+    """Extract test resources from the given test module or package.
 
     Args:
       args: Parsed command-line args.
@@ -235,39 +268,45 @@ def _resolve_test_resources(
                 requirements_files.append(path)
             if path.endswith('.apk'):
                 test_apks.append(path)
-    elif args.packages:
+    elif args.packages or args.wheel:
+        packages = args.packages.split(',') if args.packages else [args.wheel]
         unzip_root = tempfile.mkdtemp(prefix='mobly_unzip_')
         _tempdirs.append(unzip_root)
-        for package in args.packages.split(','):
+        for package in packages:
             mobly_bins.append(os.path.abspath(package))
             unzip_dir = os.path.join(unzip_root, os.path.basename(package))
             print(f'Unzipping test package {package} to {unzip_dir}.')
             os.makedirs(unzip_dir)
             with zipfile.ZipFile(package) as zf:
                 zf.extractall(unzip_dir)
-            for path in os.listdir(unzip_dir):
-                path = os.path.join(unzip_dir, path)
-                if path.endswith('requirements.txt'):
-                    requirements_files.append(path)
-                if path.endswith('.apk'):
-                    test_apks.append(path)
+            for root, _, files in os.walk(unzip_dir):
+                for file_name in files:
+                    path = os.path.join(root, file_name)
+                    if path.endswith('requirements.txt'):
+                        requirements_files.append(path)
+                    if path.endswith('.apk'):
+                        test_apks.append(path)
     else:
         print('No tests specified. Aborting.')
         exit(1)
     return mobly_bins, requirements_files, test_apks
 
 
-def _setup_virtualenv(requirements_files: List[str]) -> str:
+def _setup_virtualenv(
+        requirements_files: List[str],
+        wheel_file: Optional[str]
+) -> str:
     """Creates a virtualenv and install dependencies into it.
 
     Args:
       requirements_files: List of paths of requirements.txt files.
+      wheel_file: A Mobly test package as an installable Python wheel.
 
     Returns:
       Path to the virtualenv's Python interpreter.
     """
     venv_dir = tempfile.mkdtemp(prefix='venv_')
-    _padded_print(f'Creating virtualenv at {venv_dir}.')
+    _padded_print(f'Setting up virtualenv at {venv_dir}.')
     subprocess.check_call([sys.executable, '-m', 'venv', venv_dir])
     _tempdirs.append(venv_dir)
     if platform.system() == 'Windows':
@@ -277,9 +316,16 @@ def _setup_virtualenv(requirements_files: List[str]) -> str:
 
     # Install requirements
     for requirements_file in requirements_files:
-        print(f'Installing dependencies from {requirements_file}.')
+        print(f'Installing dependencies from {requirements_file}.\n')
         subprocess.check_call(
             [venv_executable, '-m', 'pip', 'install', '-r', requirements_file]
+        )
+
+    # Install wheel
+    if wheel_file is not None:
+        print(f'Installing test wheel package {wheel_file}.\n')
+        subprocess.check_call(
+            [venv_executable, '-m', 'pip', 'install', wheel_file]
         )
     return venv_executable
 
@@ -408,8 +454,8 @@ def main() -> None:
 
     serials = args.serials.split(',') if args.serials else None
 
-    # Resolve test resources
-    mobly_bins, requirements_files, test_apks = _resolve_test_resources(args)
+    # Extract test resources
+    mobly_bins, requirements_files, test_apks = _extract_test_resources(args)
 
     # Install test APKs, if necessary
     if args.install_apks:
@@ -421,7 +467,13 @@ def main() -> None:
         if args.test_paths is not None:
             python_executable = sys.executable
     else:
-        python_executable = _setup_virtualenv(requirements_files)
+        python_executable = _setup_virtualenv(requirements_files, args.wheel)
+
+    if args.wheel:
+        mobly_bins = [
+            os.path.join(os.path.dirname(python_executable), args.bin)
+        ]
+        python_executable = None
 
     # Generate the Mobly config, if necessary
     config = args.config or _generate_mobly_config(serials)
