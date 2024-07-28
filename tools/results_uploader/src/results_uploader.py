@@ -233,6 +233,7 @@ def _upload_to_resultstore(
         file_paths: list[str],
         status: _Status,
         target_id: str | None,
+        labels: list[str],
 ) -> None:
     """Uploads test results to Resultstore."""
     logging.info('Generating Resultstore link...')
@@ -243,7 +244,7 @@ def _upload_to_resultstore(
     )
     creds, project_id = google.auth.default()
     client = resultstore_client.ResultstoreClient(service, creds, project_id)
-    client.create_invocation()
+    client.create_invocation(labels)
     client.create_default_configuration()
     client.create_target(target_id)
     client.create_configured_target()
@@ -290,6 +291,12 @@ def main():
         '--test_title',
         help='Custom test title to display in the result UI.'
     )
+    parser.add_argument(
+        '--label',
+        action='append',
+        help='Label to attach to the uploaded result. Can be repeated for '
+             'multiple labels.'
+    )
     args = parser.parse_args()
     logging.basicConfig(
         format='%(levelname)s: %(message)s',
@@ -324,6 +331,7 @@ def main():
         gcs_files,
         test_result_info.status,
         args.test_title or test_result_info.target_id,
+        args.label
     )
 
 

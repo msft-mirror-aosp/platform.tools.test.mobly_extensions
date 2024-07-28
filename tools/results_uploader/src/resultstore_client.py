@@ -110,8 +110,12 @@ class ResultstoreClient:
         """Sets the overall test run status."""
         self._status = status
 
-    def create_invocation(self) -> str:
+    def create_invocation(self, labels: list[str]) -> str:
         """Creates an invocation.
+
+        Args:
+            labels: A list of labels to attach to the invocation, as
+              `invocation.invocationAttributes.labels`.
 
         Returns:
           The invocation ID.
@@ -129,8 +133,14 @@ class ResultstoreClient:
             },
             'invocationAttributes': {
                 'projectId': self._project_id,
-                'labels': [_get_tool_version_label()],
+                'labels': labels,
             },
+            'properties': [
+                {
+                    'key': _PACKAGE_NAME,
+                    'value': importlib.metadata.version(_PACKAGE_NAME)
+                }
+            ]
         }
         self._request_id = str(uuid.uuid4())
         self._invocation_id = str(uuid.uuid4())
@@ -401,11 +411,3 @@ class ResultstoreClient:
         self._authorization_token = ''
         self._target_id = ''
         self._encoded_target_id = ''
-
-
-def _get_tool_version_label() -> str:
-    """Returns a string label representing the uploader name and version."""
-    version = importlib.metadata.version(_PACKAGE_NAME)
-    if version:
-        return f'{_PACKAGE_NAME}=={version}'
-    return _PACKAGE_NAME
