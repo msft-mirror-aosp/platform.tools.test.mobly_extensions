@@ -73,3 +73,7 @@ Google Cloud Storage bucket:
 4. If successful, at the end of the upload process you will get a link beginning
    with http://btx.cloud.google.com. Simply share this link to others who
    wish to view your test results.
+
+## Additional reference
+
+To see a list of supported options, please consult `results_uploader --help`.
