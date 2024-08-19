@@ -1,5 +1,40 @@
 # Mobly Results Uploader release history
 
+## 0.6 (2024-07-19)
+
+### New
+* Display newly uploaded results in the BTX invocation search page
+  (https://btx.cloud.google.com/invocations).
+* Support tagging uploaded results with `--label`.
+  * Labels will be visible in the invocation search page.
+  * Filters can be applied in the search page (`label:...`) to search
+    for results with matching labels.
+* Support specifying multilevel paths in `--gcs_dir`.
+* Remove support for empty string `--gcs_dir`. Uploads to the root directory
+  of a GCS bucket are no longer allowed.
+* Add the uploader tool version to the result metadata.
+
+### Fixes
+* Mobly log files are no longer locally copied to a second temp location prior
+  to upload.
+* Remove manual GCS upload fallback (introduced in v0.3).
+
+
+## 0.5.1 (2024-06-28)
+
+### Fixes
+* Extend the default timeout for GCS uploads and support custom timeout values.
+* Enable automatic retry of GCS uploads following connection errors.
+
+
+## 0.5 (2024-06-25)
+
+### New
+* Use `pathlib` for all file operations.
+  * Support specifying relative paths.
+  * Support specifying paths with backslash separators in Windows.
+
+
 ## 0.4 (2024-05-16)
 
 ### New
@@ -35,7 +70,6 @@
 ## 0.1 (2024-01-05)
 
 ### New
-
 * Add the `results_uploader` tool for uploading Mobly test results to the
   Resultstore service.
   * Uploads local test logs to a user-provided Google Cloud Storage location.
