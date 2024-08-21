@@ -19,11 +19,9 @@
 import argparse
 import dataclasses
 import datetime
-import getpass
 from importlib import resources
 import logging
 import mimetypes
-import os
 import pathlib
 import platform
 import shutil
@@ -32,6 +30,8 @@ import warnings
 from xml.etree import ElementTree
 
 import google.auth
+from google.cloud import api_keys_v2
+from google.cloud import resourcemanager_v3
 from google.cloud import storage
 from googleapiclient import discovery
 
@@ -46,6 +46,7 @@ logging.getLogger('googleapiclient').setLevel(logging.WARNING)
 
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
+_API_KEY_DISPLAY_NAME = 'resultstore'
 _DISCOVERY_SERVICE_URL = (
     'https://{api}.googleapis.com/$discovery/rest?version={apiVersion}'
 )
@@ -62,10 +63,6 @@ _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
 _GCS_DEFAULT_TIMEOUT_SECS = 300
-
-_GCP_CREDENTIALS_BASE_LINK = (
-    'https://console.cloud.google.com/apis/credentials'
-)
 
 _ResultstoreTreeTags = mobly_result_converter.ResultstoreTreeTags
 _ResultstoreTreeAttributes = mobly_result_converter.ResultstoreTreeAttributes
@@ -234,7 +231,28 @@ def _upload_dir_to_gcs(
     return [f'{gcs_dir}/{path}' for path in success_paths]
 
 
+def _get_project_number(project_id: str) -> str:
+    """Get the project number associated with a GCP project ID."""
+    client = resourcemanager_v3.ProjectsClient()
+    response = client.get_project(name=f'projects/{project_id}')
+    return response.name.split('/', 1)[1]
+
+
+def _retrieve_api_key(project_id: str) -> str | None:
+    """Downloads the Resultstore API key for the given Google Cloud project."""
+    project_number = _get_project_number(project_id)
+    client = api_keys_v2.ApiKeysClient()
+    keys = client.list_keys(
+        parent=f'projects/{project_number}/locations/global'
+    ).keys
+    for key in keys:
+        if key.display_name == _API_KEY_DISPLAY_NAME:
+            return client.get_key_string(name=key.name).key_string
+    return None
+
+
 def _upload_to_resultstore(
+        api_key: str,
         gcs_bucket: str,
         gcs_base_dir: str,
         file_paths: list[str],
@@ -245,13 +263,6 @@ def _upload_to_resultstore(
     """Uploads test results to Resultstore."""
     logging.info('Generating Resultstore link...')
     creds, project_id = google.auth.default()
-    api_key = os.getenv('RESULTSTORE_API_KEY')
-    if api_key is None:
-        api_key = getpass.getpass(
-            '\nEnter the Resultstore API key from '
-            f'{_GCP_CREDENTIALS_BASE_LINK}?project={project_id} : '
-        )
-
     service = discovery.build(
         _RESULTSTORE_SERVICE_NAME,
         _API_VERSION,
@@ -318,6 +329,14 @@ def main():
         level=(logging.DEBUG if args.verbose else logging.INFO)
     )
     _, project_id = google.auth.default()
+    api_key = _retrieve_api_key(project_id)
+    if api_key is None:
+        logging.error(
+            'No API key with name [%s] found for project [%s]. Contact the '
+            'project owner to create the required key.',
+            _API_KEY_DISPLAY_NAME, project_id
+        )
+        return
     gcs_bucket = project_id if args.gcs_bucket is None else args.gcs_bucket
     gcs_base_dir = pathlib.PurePath(
         datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -341,6 +360,7 @@ def main():
         args.gcs_upload_timeout
     )
     _upload_to_resultstore(
+        api_key,
         gcs_bucket,
         gcs_base_dir.as_posix(),
         gcs_files,
