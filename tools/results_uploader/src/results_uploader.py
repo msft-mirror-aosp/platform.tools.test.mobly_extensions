@@ -19,9 +19,11 @@
 import argparse
 import dataclasses
 import datetime
+import getpass
 from importlib import resources
 import logging
 import mimetypes
+import os
 import pathlib
 import platform
 import shutil
@@ -47,6 +49,7 @@ _API_VERSION = 'v2'
 _DISCOVERY_SERVICE_URL = (
     'https://{api}.googleapis.com/$discovery/rest?version={apiVersion}'
 )
+
 _TEST_XML = 'test.xml'
 _TEST_LOG = 'test.log'
 _UNDECLARED_OUTPUTS = 'undeclared_outputs'
@@ -59,6 +62,10 @@ _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
 _GCS_DEFAULT_TIMEOUT_SECS = 300
+
+_GCP_CREDENTIALS_BASE_LINK = (
+    'https://console.cloud.google.com/apis/credentials'
+)
 
 _ResultstoreTreeTags = mobly_result_converter.ResultstoreTreeTags
 _ResultstoreTreeAttributes = mobly_result_converter.ResultstoreTreeAttributes
@@ -237,12 +244,20 @@ def _upload_to_resultstore(
 ) -> None:
     """Uploads test results to Resultstore."""
     logging.info('Generating Resultstore link...')
+    creds, project_id = google.auth.default()
+    api_key = os.getenv('RESULTSTORE_API_KEY')
+    if api_key is None:
+        api_key = getpass.getpass(
+            '\nEnter the Resultstore API key from '
+            f'{_GCP_CREDENTIALS_BASE_LINK}?project={project_id} : '
+        )
+
     service = discovery.build(
         _RESULTSTORE_SERVICE_NAME,
         _API_VERSION,
         discoveryServiceUrl=_DISCOVERY_SERVICE_URL,
+        developerKey=api_key,
     )
-    creds, project_id = google.auth.default()
     client = resultstore_client.ResultstoreClient(service, creds, project_id)
     client.create_invocation(labels)
     client.create_default_configuration()
