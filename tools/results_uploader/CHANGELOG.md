@@ -1,5 +1,15 @@
 # Mobly Results Uploader release history
 
+## 0.6.1 (2024-08-21)
+
+### Fixes
+* The Resultstore service now requires API keys for its Upload API. This must
+  be provided by the client.
+  * Automatically fetch and use the `resultstore` API key from the user's Google
+    Cloud project, if it exists.
+  * Otherwise, the tool will show an error message for the missing key.
+
+
 ## 0.6 (2024-07-19)
 
 ### New
