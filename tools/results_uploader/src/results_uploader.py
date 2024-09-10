@@ -30,6 +30,8 @@ import warnings
 from xml.etree import ElementTree
 
 import google.auth
+from google.cloud import api_keys_v2
+from google.cloud import resourcemanager_v3
 from google.cloud import storage
 from googleapiclient import discovery
 
@@ -44,11 +46,13 @@ logging.getLogger('googleapiclient').setLevel(logging.WARNING)
 
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
+_API_KEY_DISPLAY_NAME = 'resultstore'
 _DISCOVERY_SERVICE_URL = (
     'https://{api}.googleapis.com/$discovery/rest?version={apiVersion}'
 )
+
 _TEST_XML = 'test.xml'
-_TEST_LOGS = 'test.log'
+_TEST_LOG = 'test.log'
 _UNDECLARED_OUTPUTS = 'undeclared_outputs'
 
 _TEST_SUMMARY_YAML = 'test_summary.yaml'
@@ -59,13 +63,6 @@ _RUN_IDENTIFIER = 'run_identifier'
 
 _GCS_BASE_LINK = 'https://console.cloud.google.com/storage/browser'
 _GCS_DEFAULT_TIMEOUT_SECS = 300
-_GCS_UPLOAD_INSTRUCTIONS = (
-    '\nAutomatic upload to GCS failed.\n'
-    'Please follow the steps below to manually upload files:\n'
-    f'\t1. Follow the link {_GCS_BASE_LINK}/%s.\n'
-    '\t2. Click "UPLOAD FOLDER".\n'
-    '\t3. Select the directory "%s" to upload.'
-)
 
 _ResultstoreTreeTags = mobly_result_converter.ResultstoreTreeTags
 _ResultstoreTreeAttributes = mobly_result_converter.ResultstoreTreeAttributes
@@ -85,7 +82,7 @@ class _TestResultInfo:
 
 def _convert_results(
         mobly_dir: pathlib.Path, dest_dir: pathlib.Path) -> _TestResultInfo:
-    """Converts Mobly test results into Resultstore artifacts."""
+    """Converts Mobly test results into Resultstore test.xml and test.log."""
     test_result_info = _TestResultInfo()
     logging.info('Converting raw Mobly logs into Resultstore artifacts...')
     # Generate the test.xml
@@ -103,14 +100,8 @@ def _convert_results(
     # Copy test_log.INFO to test.log
     test_log_info = mobly_dir.joinpath(_TEST_LOG_INFO)
     if test_log_info.is_file():
-        shutil.copyfile(test_log_info, dest_dir.joinpath(_TEST_LOGS))
+        shutil.copyfile(test_log_info, dest_dir.joinpath(_TEST_LOG))
 
-    # Copy directory to undeclared_outputs/
-    shutil.copytree(
-        mobly_dir,
-        dest_dir.joinpath(_UNDECLARED_OUTPUTS),
-        dirs_exist_ok=True,
-    )
     return test_result_info
 
 
@@ -230,54 +221,60 @@ def _upload_dir_to_gcs(
     )
 
     success_paths = []
-    for file_name, result in zip(file_paths, results):
+    for file_path, result in zip(file_paths, results):
         if isinstance(result, Exception):
-            logging.warning('Failed to upload %s. Error: %s', file_name, result)
+            logging.warning('Failed to upload %s. Error: %s', file_path, result)
         else:
-            logging.debug('Uploaded %s.', file_name)
-            success_paths.append(file_name)
+            logging.debug('Uploaded %s.', file_path)
+            success_paths.append(file_path)
 
-    # If all files fail to upload, something wrong happened with the GCS client.
-    # Prompt the user to manually upload the files instead.
-    if file_paths and not success_paths:
-        _prompt_user_upload(src_dir, gcs_bucket)
-        success_paths = file_paths
-
-    return success_paths
+    return [f'{gcs_dir}/{path}' for path in success_paths]
 
 
-def _prompt_user_upload(src_dir: pathlib.Path, gcs_bucket: str) -> None:
-    """Prompts the user to manually upload files to GCS."""
-    print(_GCS_UPLOAD_INSTRUCTIONS % (gcs_bucket, src_dir))
-    while True:
-        resp = input(
-            'Once you see the message "# files successfully uploaded", '
-            'enter "Y" or "yes" to continue:')
-        if resp.lower() in ('y', 'yes'):
-            break
+def _get_project_number(project_id: str) -> str:
+    """Get the project number associated with a GCP project ID."""
+    client = resourcemanager_v3.ProjectsClient()
+    response = client.get_project(name=f'projects/{project_id}')
+    return response.name.split('/', 1)[1]
+
+
+def _retrieve_api_key(project_id: str) -> str | None:
+    """Downloads the Resultstore API key for the given Google Cloud project."""
+    project_number = _get_project_number(project_id)
+    client = api_keys_v2.ApiKeysClient()
+    keys = client.list_keys(
+        parent=f'projects/{project_number}/locations/global'
+    ).keys
+    for key in keys:
+        if key.display_name == _API_KEY_DISPLAY_NAME:
+            return client.get_key_string(name=key.name).key_string
+    return None
 
 
 def _upload_to_resultstore(
+        api_key: str,
         gcs_bucket: str,
-        gcs_dir: str,
+        gcs_base_dir: str,
         file_paths: list[str],
         status: _Status,
         target_id: str | None,
+        labels: list[str],
 ) -> None:
     """Uploads test results to Resultstore."""
     logging.info('Generating Resultstore link...')
+    creds, project_id = google.auth.default()
     service = discovery.build(
         _RESULTSTORE_SERVICE_NAME,
         _API_VERSION,
         discoveryServiceUrl=_DISCOVERY_SERVICE_URL,
+        developerKey=api_key,
     )
-    creds, project_id = google.auth.default()
     client = resultstore_client.ResultstoreClient(service, creds, project_id)
-    client.create_invocation()
+    client.create_invocation(labels)
     client.create_default_configuration()
     client.create_target(target_id)
     client.create_configured_target()
-    client.create_action(f'gs://{gcs_bucket}/{gcs_dir}', file_paths)
+    client.create_action(gcs_bucket, gcs_base_dir, file_paths)
     client.set_status(status)
     client.merge_configured_target()
     client.finalize_configured_target()
@@ -304,9 +301,8 @@ def main():
     parser.add_argument(
         '--gcs_dir',
         help=(
-            'Directory to save test artifacts in GCS. Specify empty string to '
-            'store the files in the bucket root. If unspecified, use the '
-            'current timestamp as the GCS directory name.'
+            'Directory to save test artifacts in GCS. If unspecified or empty,'
+            'use the current timestamp as the GCS directory name.'
         ),
     )
     parser.add_argument(
@@ -321,31 +317,56 @@ def main():
         '--test_title',
         help='Custom test title to display in the result UI.'
     )
+    parser.add_argument(
+        '--label',
+        action='append',
+        help='Label to attach to the uploaded result. Can be repeated for '
+             'multiple labels.'
+    )
     args = parser.parse_args()
     logging.basicConfig(
         format='%(levelname)s: %(message)s',
         level=(logging.DEBUG if args.verbose else logging.INFO)
     )
     _, project_id = google.auth.default()
+    api_key = _retrieve_api_key(project_id)
+    if api_key is None:
+        logging.error(
+            'No API key with name [%s] found for project [%s]. Contact the '
+            'project owner to create the required key.',
+            _API_KEY_DISPLAY_NAME, project_id
+        )
+        return
     gcs_bucket = project_id if args.gcs_bucket is None else args.gcs_bucket
-    gcs_dir = (
+    gcs_base_dir = pathlib.PurePath(
         datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-        if args.gcs_dir is None
+        if not args.gcs_dir
         else args.gcs_dir
     )
+    mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
+    # Generate and upload test.xml and test.log
     with tempfile.TemporaryDirectory() as tmp:
-        converted_dir = pathlib.Path(tmp).joinpath(gcs_dir)
-        converted_dir.mkdir()
-        mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
+        converted_dir = pathlib.Path(tmp).joinpath(gcs_base_dir)
+        converted_dir.mkdir(parents=True)
         test_result_info = _convert_results(mobly_dir, converted_dir)
         gcs_files = _upload_dir_to_gcs(
-            converted_dir, gcs_bucket, gcs_dir, args.gcs_upload_timeout)
+            converted_dir, gcs_bucket, gcs_base_dir.as_posix(),
+            args.gcs_upload_timeout
+        )
+    # Upload raw Mobly logs to undeclared_outputs/ subdirectory
+    gcs_files += _upload_dir_to_gcs(
+        mobly_dir, gcs_bucket,
+        gcs_base_dir.joinpath(_UNDECLARED_OUTPUTS).as_posix(),
+        args.gcs_upload_timeout
+    )
     _upload_to_resultstore(
+        api_key,
         gcs_bucket,
-        gcs_dir,
+        gcs_base_dir.as_posix(),
         gcs_files,
         test_result_info.status,
         args.test_title or test_result_info.target_id,
+        args.label
     )
 
 
