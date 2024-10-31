@@ -25,6 +25,7 @@ import mimetypes
 import pathlib
 import platform
 import shutil
+import subprocess
 import tempfile
 import warnings
 from xml.etree import ElementTree
@@ -43,6 +44,7 @@ with warnings.catch_warnings():
     from google.cloud.storage import transfer_manager
 
 logging.getLogger('googleapiclient').setLevel(logging.WARNING)
+logging.getLogger('google.auth').setLevel(logging.ERROR)
 
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
@@ -78,6 +80,44 @@ class _TestResultInfo:
     status: _Status = _Status.UNKNOWN
     # Target ID for the test.
     target_id: str | None = None
+
+
+def _gcloud_login_and_set_project() -> None:
+    """Get gcloud application default creds and set the desired GCP project."""
+    logging.info('No credentials found. Performing initial setup.')
+    project_id = ''
+    while not project_id:
+        project_id = input('Enter your GCP project ID: ')
+    try:
+        subprocess.run(['gcloud', 'auth', 'application-default', 'login',
+                        '--no-launch-browser'])
+        subprocess.run(['gcloud', 'auth', 'application-default',
+                        'set-quota-project', project_id])
+    except FileNotFoundError:
+        logging.exception(
+            'Failed to run `gcloud` commands. Please install the `gcloud` CLI!')
+    logging.info('Initial setup complete!')
+    print('-' * 20)
+
+
+def _get_project_number(project_id: str) -> str:
+    """Get the project number associated with a GCP project ID."""
+    client = resourcemanager_v3.ProjectsClient()
+    response = client.get_project(name=f'projects/{project_id}')
+    return response.name.split('/', 1)[1]
+
+
+def _retrieve_api_key(project_id: str) -> str | None:
+    """Downloads the Resultstore API key for the given Google Cloud project."""
+    project_number = _get_project_number(project_id)
+    client = api_keys_v2.ApiKeysClient()
+    keys = client.list_keys(
+        parent=f'projects/{project_number}/locations/global'
+    ).keys
+    for key in keys:
+        if key.display_name == _API_KEY_DISPLAY_NAME:
+            return client.get_key_string(name=key.name).key_string
+    return None
 
 
 def _convert_results(
@@ -231,26 +271,6 @@ def _upload_dir_to_gcs(
     return [f'{gcs_dir}/{path}' for path in success_paths]
 
 
-def _get_project_number(project_id: str) -> str:
-    """Get the project number associated with a GCP project ID."""
-    client = resourcemanager_v3.ProjectsClient()
-    response = client.get_project(name=f'projects/{project_id}')
-    return response.name.split('/', 1)[1]
-
-
-def _retrieve_api_key(project_id: str) -> str | None:
-    """Downloads the Resultstore API key for the given Google Cloud project."""
-    project_number = _get_project_number(project_id)
-    client = api_keys_v2.ApiKeysClient()
-    keys = client.list_keys(
-        parent=f'projects/{project_number}/locations/global'
-    ).keys
-    for key in keys:
-        if key.display_name == _API_KEY_DISPLAY_NAME:
-            return client.get_key_string(name=key.name).key_string
-    return None
-
-
 def _upload_to_resultstore(
         api_key: str,
         gcs_bucket: str,
@@ -328,7 +348,12 @@ def main():
         format='%(levelname)s: %(message)s',
         level=(logging.DEBUG if args.verbose else logging.INFO)
     )
-    _, project_id = google.auth.default()
+    try:
+        _, project_id = google.auth.default()
+    except google.auth.exceptions.DefaultCredentialsError:
+        _gcloud_login_and_set_project()
+        _, project_id = google.auth.default()
+    logging.info('Current GCP project ID: %s', project_id)
     api_key = _retrieve_api_key(project_id)
     if api_key is None:
         logging.error(
