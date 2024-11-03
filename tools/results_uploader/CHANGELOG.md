@@ -1,5 +1,13 @@
 # Mobly Results Uploader release history
 
+## 0.7 (2024-10-29)
+
+### New
+* Automatically prompt the user for GCP login if missing stored credentials.
+  * The user is no longer required to separately run login commands before using
+    the uploader for the first time.
+
+
 ## 0.6.1 (2024-08-21)
 
 ### Fixes
