@@ -40,6 +40,7 @@ class Status(enum.Enum):
     PASSED = 'PASSED'
     FAILED = 'FAILED'
     SKIPPED = 'SKIPPED'
+    FLAKY = 'FLAKY'
     UNKNOWN = 'UNKNOWN'
 
 
