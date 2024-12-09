@@ -17,6 +17,7 @@
 """CLI uploader for Mobly test results to Resultstore."""
 
 import argparse
+import collections
 import dataclasses
 import datetime
 from importlib import resources
@@ -145,6 +146,97 @@ def _convert_results(
     return test_result_info
 
 
+def _aggregate_testcase_iteration_results(
+        iteration_results: list[str]):
+    """Determines the aggregate result from a list of test case iterations.
+
+    This is only applicable to test cases with repeat/retry.
+    """
+    iterations_failed = [
+        result == _Status.FAILED for result in iteration_results
+        if result != _Status.SKIPPED
+    ]
+    # Skip if all iterations skipped
+    if not iterations_failed:
+        return _Status.SKIPPED
+    # Fail if all iterations failed
+    if all(iterations_failed):
+        return _Status.FAILED
+    # Flaky if some iterations failed
+    if any(iterations_failed):
+        return _Status.FLAKY
+    # Pass otherwise
+    return _Status.PASSED
+
+
+def _aggregate_subtest_results(subtest_results: list[str]):
+    """Determines the aggregate result from a list of subtest nodes.
+
+    This is used to provide a test class result based on the test cases, or
+    a test suite result based on the test classes.
+    """
+    # Skip if all subtests skipped
+    if all([result == _Status.SKIPPED for result in subtest_results]):
+        return _Status.SKIPPED
+
+    any_flaky = False
+    for result in subtest_results:
+        # Fail if any subtest failed
+        if result == _Status.FAILED:
+            return _Status.FAILED
+        # Record flaky subtest
+        if result == _Status.FLAKY:
+            any_flaky = True
+    # Flaky if any subtest is flaky, pass otherwise
+    return _Status.FLAKY if any_flaky else _Status.PASSED
+
+
+def _get_test_status_from_xml(mobly_suite_element: ElementTree.Element):
+    """Gets the overall status from the test XML."""
+    test_class_elements = mobly_suite_element.findall(
+        f'./{_ResultstoreTreeTags.TESTSUITE.value}')
+    test_class_results = []
+    for test_class_element in test_class_elements:
+        test_case_results = []
+        test_case_iteration_results = collections.defaultdict(list)
+        test_case_elements = test_class_element.findall(
+            f'./{_ResultstoreTreeTags.TESTCASE.value}')
+        for test_case_element in test_case_elements:
+            result = _Status.PASSED
+            if test_case_element.get(
+                    _ResultstoreTreeAttributes.RESULT.value) == 'skipped':
+                result = _Status.SKIPPED
+            if (
+                    test_case_element.find(
+                        f'./{_ResultstoreTreeTags.FAILURE.value}') is not None
+                    or test_case_element.find(
+                        f'./{_ResultstoreTreeTags.ERROR.value}') is not None
+            ):
+                result = _Status.FAILED
+            # Add to iteration results if run as part of a repeat/retry
+            # Otherwise, add to test case results directly
+            if (
+                    test_case_element.get(
+                        _ResultstoreTreeAttributes.RETRY_NUMBER.value) or
+                    test_case_element.get(
+                        _ResultstoreTreeAttributes.REPEAT_NUMBER.value)
+            ):
+                test_case_iteration_results[
+                    test_case_element.get(_ResultstoreTreeAttributes.NAME.value)
+                ].append(result)
+            else:
+                test_case_results.append(result)
+
+        for iteration_result_list in test_case_iteration_results.values():
+            test_case_results.append(
+                _aggregate_testcase_iteration_results(iteration_result_list)
+            )
+        test_class_results.append(
+            _aggregate_subtest_results(test_case_results)
+        )
+    return _aggregate_subtest_results(test_class_results)
+
+
 def _get_test_result_info_from_test_xml(
         test_xml: ElementTree.ElementTree,
 ) -> _TestResultInfo:
@@ -156,24 +248,7 @@ def _get_test_result_info_from_test_xml(
     if mobly_suite_element is None:
         return test_result_info
     # Set aggregate test status
-    test_result_info.status = _Status.PASSED
-    test_class_elements = mobly_suite_element.findall(
-        f'./{_ResultstoreTreeTags.TESTSUITE.value}')
-    failures = int(
-        mobly_suite_element.get(_ResultstoreTreeAttributes.FAILURES.value)
-    )
-    errors = int(
-        mobly_suite_element.get(_ResultstoreTreeAttributes.ERRORS.value))
-    if failures or errors:
-        test_result_info.status = _Status.FAILED
-    else:
-        all_skipped = all([test_case_element.get(
-            _ResultstoreTreeAttributes.RESULT.value) == 'skipped' for
-                           test_class_element in test_class_elements for
-                           test_case_element in test_class_element.findall(
-                f'./{_ResultstoreTreeTags.TESTCASE.value}')])
-        if all_skipped:
-            test_result_info.status = _Status.SKIPPED
+    test_result_info.status = _get_test_status_from_xml(mobly_suite_element)
 
     # Set target ID based on test class names, suite name, and custom run
     # identifier.
@@ -202,6 +277,8 @@ def _get_test_result_info_from_test_xml(
     if suite_name_value:
         target_id = suite_name_value
     else:
+        test_class_elements = mobly_suite_element.findall(
+            f'./{_ResultstoreTreeTags.TESTSUITE.value}')
         test_class_names = [
             test_class_element.get(_ResultstoreTreeAttributes.NAME.value)
             for test_class_element in test_class_elements
