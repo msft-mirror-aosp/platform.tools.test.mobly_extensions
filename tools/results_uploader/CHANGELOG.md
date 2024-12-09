@@ -1,13 +1,5 @@
 # Mobly Results Uploader release history
 
-## 0.7.1 (2024-12-06)
-
-### Fixes
-* If a target contains any flaky test nodes, but not failing ones, set the target
-  status to FLAKY instead of FAILED.
-  * FLAKY targets will appear with a yellow banner in the BTX page.
-
-
 ## 0.7 (2024-10-29)
 
 ### New
