@@ -441,6 +441,15 @@ def main():
         help='Label to attach to the uploaded result. Can be repeated for '
              'multiple labels.'
     )
+    parser.add_argument(
+        '--no_convert_result',
+        action='store_true',
+        help=(
+            'Upload the files as is, without first converting Mobly results to '
+            'Resultstore\'s format. The source directory must contain at least '
+            'a `test.xml` file, and an `undeclared_outputs` zip or '
+            'subdirectory.')
+    )
     args = parser.parse_args()
     _setup_logging(args.verbose)
     try:
@@ -464,21 +473,32 @@ def main():
         else args.gcs_dir
     )
     mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
-    # Generate and upload test.xml and test.log
-    with tempfile.TemporaryDirectory() as tmp:
-        converted_dir = pathlib.Path(tmp).joinpath(gcs_base_dir)
-        converted_dir.mkdir(parents=True)
-        test_result_info = _convert_results(mobly_dir, converted_dir)
+
+    if args.no_convert_result:
+        # Determine the final status based on the test.xml
+        test_xml = ElementTree.parse(mobly_dir.joinpath(_TEST_XML))
+        test_result_info = _get_test_result_info_from_test_xml(test_xml)
+        # Upload the contents of mobly_dir directly
         gcs_files = _upload_dir_to_gcs(
-            converted_dir, gcs_bucket, gcs_base_dir.as_posix(),
+            mobly_dir, gcs_bucket, gcs_base_dir.as_posix(),
             args.gcs_upload_timeout
         )
-    # Upload raw Mobly logs to undeclared_outputs/ subdirectory
-    gcs_files += _upload_dir_to_gcs(
-        mobly_dir, gcs_bucket,
-        gcs_base_dir.joinpath(_UNDECLARED_OUTPUTS).as_posix(),
-        args.gcs_upload_timeout
-    )
+    else:
+        # Generate and upload test.xml and test.log
+        with tempfile.TemporaryDirectory() as tmp:
+            converted_dir = pathlib.Path(tmp).joinpath(gcs_base_dir)
+            converted_dir.mkdir(parents=True)
+            test_result_info = _convert_results(mobly_dir, converted_dir)
+            gcs_files = _upload_dir_to_gcs(
+                converted_dir, gcs_bucket, gcs_base_dir.as_posix(),
+                args.gcs_upload_timeout
+            )
+        # Upload raw Mobly logs to undeclared_outputs/ subdirectory
+        gcs_files += _upload_dir_to_gcs(
+            mobly_dir, gcs_bucket,
+            gcs_base_dir.joinpath(_UNDECLARED_OUTPUTS).as_posix(),
+            args.gcs_upload_timeout
+        )
     _upload_to_resultstore(
         api_key,
         gcs_bucket,
