@@ -44,8 +44,6 @@ with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     from google.cloud.storage import transfer_manager
 
-logging.getLogger('googleapiclient').setLevel(logging.WARNING)
-logging.getLogger('google.auth').setLevel(logging.ERROR)
 
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
@@ -83,6 +81,29 @@ class _TestResultInfo:
     target_id: str | None = None
 
 
+def _setup_logging(verbose: bool) -> None:
+    """Configures the logging for this module."""
+    debug_log_path = tempfile.mkstemp('_upload_log.txt')[1]
+    file_handler = logging.FileHandler(debug_log_path)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s [%(module)s.%(funcName)s] %(message)s'
+    ))
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    stream_handler.setFormatter(
+        logging.Formatter('%(levelname)s: %(message)s'))
+    logging.basicConfig(
+        level=logging.DEBUG,
+        handlers=(file_handler, stream_handler)
+    )
+
+    logging.getLogger('googleapiclient').setLevel(logging.WARNING)
+    logging.getLogger('google.auth').setLevel(logging.ERROR)
+    logging.info('Debug logs are saved to %s', debug_log_path)
+    print('-' * 50)
+
+
 def _gcloud_login_and_set_project() -> None:
     """Get gcloud application default creds and set the desired GCP project."""
     logging.info('No credentials found. Performing initial setup.')
@@ -98,7 +119,7 @@ def _gcloud_login_and_set_project() -> None:
         logging.exception(
             'Failed to run `gcloud` commands. Please install the `gcloud` CLI!')
     logging.info('Initial setup complete!')
-    print('-' * 20)
+    print('-' * 50)
 
 
 def _get_project_number(project_id: str) -> str:
@@ -421,10 +442,7 @@ def main():
              'multiple labels.'
     )
     args = parser.parse_args()
-    logging.basicConfig(
-        format='%(levelname)s: %(message)s',
-        level=(logging.DEBUG if args.verbose else logging.INFO)
-    )
+    _setup_logging(args.verbose)
     try:
         _, project_id = google.auth.default()
     except google.auth.exceptions.DefaultCredentialsError:
