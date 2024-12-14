@@ -44,8 +44,6 @@ with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     from google.cloud.storage import transfer_manager
 
-logging.getLogger('googleapiclient').setLevel(logging.WARNING)
-logging.getLogger('google.auth').setLevel(logging.ERROR)
 
 _RESULTSTORE_SERVICE_NAME = 'resultstore'
 _API_VERSION = 'v2'
@@ -83,6 +81,29 @@ class _TestResultInfo:
     target_id: str | None = None
 
 
+def _setup_logging(verbose: bool) -> None:
+    """Configures the logging for this module."""
+    debug_log_path = tempfile.mkstemp('_upload_log.txt')[1]
+    file_handler = logging.FileHandler(debug_log_path)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s [%(module)s.%(funcName)s] %(message)s'
+    ))
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    stream_handler.setFormatter(
+        logging.Formatter('%(levelname)s: %(message)s'))
+    logging.basicConfig(
+        level=logging.DEBUG,
+        handlers=(file_handler, stream_handler)
+    )
+
+    logging.getLogger('googleapiclient').setLevel(logging.WARNING)
+    logging.getLogger('google.auth').setLevel(logging.ERROR)
+    logging.info('Debug logs are saved to %s', debug_log_path)
+    print('-' * 50)
+
+
 def _gcloud_login_and_set_project() -> None:
     """Get gcloud application default creds and set the desired GCP project."""
     logging.info('No credentials found. Performing initial setup.')
@@ -98,7 +119,7 @@ def _gcloud_login_and_set_project() -> None:
         logging.exception(
             'Failed to run `gcloud` commands. Please install the `gcloud` CLI!')
     logging.info('Initial setup complete!')
-    print('-' * 20)
+    print('-' * 50)
 
 
 def _get_project_number(project_id: str) -> str:
@@ -420,11 +441,17 @@ def main():
         help='Label to attach to the uploaded result. Can be repeated for '
              'multiple labels.'
     )
-    args = parser.parse_args()
-    logging.basicConfig(
-        format='%(levelname)s: %(message)s',
-        level=(logging.DEBUG if args.verbose else logging.INFO)
+    parser.add_argument(
+        '--no_convert_result',
+        action='store_true',
+        help=(
+            'Upload the files as is, without first converting Mobly results to '
+            'Resultstore\'s format. The source directory must contain at least '
+            'a `test.xml` file, and an `undeclared_outputs` zip or '
+            'subdirectory.')
     )
+    args = parser.parse_args()
+    _setup_logging(args.verbose)
     try:
         _, project_id = google.auth.default()
     except google.auth.exceptions.DefaultCredentialsError:
@@ -446,21 +473,32 @@ def main():
         else args.gcs_dir
     )
     mobly_dir = pathlib.Path(args.mobly_dir).absolute().expanduser()
-    # Generate and upload test.xml and test.log
-    with tempfile.TemporaryDirectory() as tmp:
-        converted_dir = pathlib.Path(tmp).joinpath(gcs_base_dir)
-        converted_dir.mkdir(parents=True)
-        test_result_info = _convert_results(mobly_dir, converted_dir)
+
+    if args.no_convert_result:
+        # Determine the final status based on the test.xml
+        test_xml = ElementTree.parse(mobly_dir.joinpath(_TEST_XML))
+        test_result_info = _get_test_result_info_from_test_xml(test_xml)
+        # Upload the contents of mobly_dir directly
         gcs_files = _upload_dir_to_gcs(
-            converted_dir, gcs_bucket, gcs_base_dir.as_posix(),
+            mobly_dir, gcs_bucket, gcs_base_dir.as_posix(),
             args.gcs_upload_timeout
         )
-    # Upload raw Mobly logs to undeclared_outputs/ subdirectory
-    gcs_files += _upload_dir_to_gcs(
-        mobly_dir, gcs_bucket,
-        gcs_base_dir.joinpath(_UNDECLARED_OUTPUTS).as_posix(),
-        args.gcs_upload_timeout
-    )
+    else:
+        # Generate and upload test.xml and test.log
+        with tempfile.TemporaryDirectory() as tmp:
+            converted_dir = pathlib.Path(tmp).joinpath(gcs_base_dir)
+            converted_dir.mkdir(parents=True)
+            test_result_info = _convert_results(mobly_dir, converted_dir)
+            gcs_files = _upload_dir_to_gcs(
+                converted_dir, gcs_bucket, gcs_base_dir.as_posix(),
+                args.gcs_upload_timeout
+            )
+        # Upload raw Mobly logs to undeclared_outputs/ subdirectory
+        gcs_files += _upload_dir_to_gcs(
+            mobly_dir, gcs_bucket,
+            gcs_base_dir.joinpath(_UNDECLARED_OUTPUTS).as_posix(),
+            args.gcs_upload_timeout
+        )
     _upload_to_resultstore(
         api_key,
         gcs_bucket,
