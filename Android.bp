@@ -56,3 +56,21 @@ python_test_host {
         "mobly_coverage_device_utils",
     ],
 }
+
+python_library_host {
+    name: "mobly_coverage_options",
+    srcs: ["coverage/coverage_options.py"],
+    libs: [
+        "mobly",
+    ],
+    pkg_path: "mobly",
+}
+
+python_library_host {
+    name: "mobly_java_coverage",
+    srcs: ["coverage/java_coverage.py"],
+    libs: [
+        "mobly",
+    ],
+    pkg_path: "mobly",
+}
