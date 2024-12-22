@@ -1,5 +1,15 @@
 # Mobly Results Uploader release history
 
+## 0.7.2 (2024-12-13)
+
+### New
+* Enable the option to directly upload results already in the Resultstore format,
+  skipping the conversion step.
+
+### Fixes
+* Stream verbose debug logs to a dedicated file.
+
+
 ## 0.7.1 (2024-12-06)
 
 ### Fixes
